@@ -1,0 +1,7 @@
+name = "t3"
+description = "Nível T3 da pipeline (o mais avançado). A sessão principal escolhe o nível pelas regras de AGENTS.md."
+model = "gpt-6.1-sol"
+model_reasoning_effort = "xhigh"
+developer_instructions = """
+Você é um subagente da Pipeline v3, nível T3. Siga o brief da sessão principal e `AGENTS.md`.
+"""

@@ -1,0 +1,84 @@
+@import "tailwindcss";
+
+@theme {
+  --color-action-on-primary: #111318;
+  --color-action-primary: #a5b4fc;
+  --color-action-primary-active: #8f9ff7;
+  --color-action-primary-hover: #b8c4fd;
+  --color-border-control: #6b717c;
+  --color-border-emphasis: #444a54;
+  --color-border-subtle: #30343c;
+  --color-feedback-error: #f39a9a;
+  --color-surface-app: #101114;
+  --color-surface-elevated: #22262d;
+  --color-surface-hover: #292e36;
+  --color-surface-panel: #191c21;
+  --color-text-muted: #949aa5;
+  --color-text-primary: #f0f1f4;
+  --color-text-secondary: #b4b9c3;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --radius-input: 4px;
+  --spacing-control-default: 32px;
+  --spacing-control-large: 40px;
+  --spacing-icon-sm: 16px;
+  --spacing-padding-button-inline: 12px;
+  --spacing-popup-width: 384px;
+  --spacing-touch-target: 44px;
+  --transition-duration-control: 250ms;
+}
+
+@theme inline {
+  --font-sans: system-ui, sans-serif;
+}
+
+@layer base {
+  body {
+    @apply bg-surface-app font-sans text-base text-text-primary antialiased;
+
+    position: relative;
+  }
+
+  h1 {
+    @apply text-3xl font-semibold;
+  }
+
+  h2 {
+    @apply text-2xl font-semibold;
+  }
+
+  h3 {
+    @apply text-xl font-semibold;
+  }
+
+  h4 {
+    @apply text-lg font-semibold;
+  }
+
+  h5 {
+    @apply text-base font-semibold;
+  }
+
+  h6 {
+    @apply text-sm font-semibold;
+  }
+
+  p {
+    @apply text-sm;
+  }
+
+  p a {
+    @apply underline;
+  }
+}
+
+@layer components {
+  .control-label {
+    @apply text-sm font-medium;
+  }
+}
+
+@layer components {
+  .popup-title {
+    @apply text-xl font-semibold;
+  }
+}

@@ -1,0 +1,10 @@
+*.tsbuildinfo
+.env*
+.husky/_/
+.output/
+.wxt/
+node_modules/
+npm-debug.log*
+playwright-report/
+test-results/
+web-ext.config.ts

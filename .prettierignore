@@ -1,0 +1,13 @@
+*.tsbuildinfo
+.claude/
+.codex/
+.husky/_/
+.output/
+.wxt/
+AGENTS.md
+CLAUDE.md
+node_modules/
+package-lock.json
+pipeline/
+playwright-report/
+test-results/

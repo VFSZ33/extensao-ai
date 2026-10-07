@@ -1,0 +1,4 @@
+# Pipeline v3: o conhecimento duradouro fica no repositório, não em memórias de agente.
+# O Codex só lê este arquivo em projetos marcados como confiáveis.
+[features]
+memories = false

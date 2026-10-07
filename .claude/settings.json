@@ -1,0 +1,29 @@
+{
+  "autoMemoryEnabled": false,
+  "permissions": {
+    "ask": [
+      "Edit(/.claude/**)",
+      "Edit(/.codex/**)",
+      "Edit(/.gitattributes)",
+      "Edit(/.gitignore)",
+      "Edit(/.husky/commit-msg)",
+      "Edit(/.husky/pre-commit)",
+      "Edit(/.prettierignore)",
+      "Edit(/.prettierrc.json)",
+      "Edit(/AGENTS.md)",
+      "Edit(/CLAUDE.md)",
+      "Edit(/commitlint.config.mjs)",
+      "Edit(/eslint.config.mjs)",
+      "Edit(/eslint/**)",
+      "Edit(/package-lock.json)",
+      "Edit(/package.json)",
+      "Edit(/pipeline/normas.md)",
+      "Edit(/pipeline/projeto.md)",
+      "Edit(/pipeline/revisao.md)",
+      "Edit(/playwright.config.ts)",
+      "Edit(/tsconfig.json)",
+      "Edit(/vitest.config.mts)",
+      "Edit(/wxt.config.ts)"
+    ]
+  }
+}
