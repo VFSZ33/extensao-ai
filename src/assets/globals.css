@@ -9,6 +9,7 @@
   --color-border-emphasis: #444a54;
   --color-border-subtle: #30343c;
   --color-feedback-error: #f39a9a;
+  --color-feedback-warning: #f2c97d;
   --color-surface-app: #101114;
   --color-surface-elevated: #22262d;
   --color-surface-hover: #292e36;
@@ -78,6 +79,12 @@
 @layer components {
   .control-label {
     @apply text-sm font-medium;
+  }
+}
+
+@layer components {
+  .control-option {
+    @apply text-sm;
   }
 }
 

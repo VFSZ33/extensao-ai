@@ -61,9 +61,14 @@ export function SubmissionHistory({ history }: SubmissionHistoryProps) {
                     <dd className="wrap-anywhere">
                       {typeof value === "string"
                         ? value
-                        : value
-                          ? "marcado"
-                          : "desmarcado"}
+                        : typeof value === "object"
+                          ? value.label +
+                            " (" +
+                            (value.value || "sem valor") +
+                            ")"
+                          : value
+                            ? "marcado"
+                            : "desmarcado"}
                     </dd>
                   </div>
                 ))}

@@ -13,6 +13,13 @@ const form: RecognizedForm = {
   definitionName: "Formulário de oferta",
   index: 2,
   label: "oferta - GEELY EX5 PRO - Enviar",
+  selects: [
+    {
+      key: "unit",
+      label: "Unidade",
+      options: [{ label: "Unidade Norte", value: "north" }],
+    },
+  ],
 };
 const page = { pageUrl: "https://example.com/oferta", tabId: 7 };
 const tabs: { query: (query: object) => Promise<object[]> } = browser.tabs;
@@ -81,6 +88,8 @@ describe("Formulários da aba ativa", () => {
     {},
     { ok: true },
     { ok: true, result: [{ definitionId: "autodromo-offer" }] },
+    { ok: true, result: [{ ...form, selects: undefined }] },
+    { ok: true, result: [{ ...form, selects: [{ key: "unit" }] }] },
     { ok: false },
   ])("rejeita a resposta inválida %j da página", async (response) => {
     vi.spyOn(tabs, "query").mockResolvedValue([{ id: 7 }]);
@@ -91,8 +100,15 @@ describe("Formulários da aba ativa", () => {
   });
 
   it("envia dados derivados do identificador e grava o histórico", async () => {
-    const values = { name: "Teste LT-20261007-080509-001", whatsapping: true };
-    const executeScript = mockPageResult({ ok: true, result: values });
+    const values = {
+      name: "Teste LT-20261007-080509-001",
+      unit: { label: "Unidade Norte", value: "north" },
+      whatsapping: true,
+    };
+    const executeScript = mockPageResult({
+      ok: true,
+      result: { unfilledFields: ["city"], values },
+    });
     const record = {
       definitionId: "autodromo-offer",
       definitionName: "Formulário de oferta",
@@ -102,7 +118,9 @@ describe("Formulários da aba ativa", () => {
       submittedAt: new Date(2026, 9, 7, 8, 5, 9).toISOString(),
       values,
     };
-    await expect(submitTestLead(page, form)).resolves.toEqual(record);
+    await expect(
+      submitTestLead(page, form, { unit: "north" }),
+    ).resolves.toEqual({ record, unfilledFields: ["city"] });
     expect(executeScript).toHaveBeenNthCalledWith(1, {
       args: [
         "leadIntegrationTesterPageCommand",
@@ -110,6 +128,7 @@ describe("Formulários da aba ativa", () => {
           definitionId: "autodromo-offer",
           index: 2,
           lead: createLeadData("LT-20261007-080509-001"),
+          selections: { unit: "north" },
           type: "submit-form",
         },
       ],
@@ -120,15 +139,26 @@ describe("Formulários da aba ativa", () => {
   });
 
   it("usa um identificador novo a cada envio", async () => {
-    mockPageResult({ ok: true, result: {} });
+    mockPageResult({ ok: true, result: { unfilledFields: [], values: {} } });
     const first = await submitTestLead(page, form);
     const second = await submitTestLead(page, form);
-    expect([first.id, second.id]).toEqual([
+    expect([first.record.id, second.record.id]).toEqual([
       "LT-20261007-080509-001",
       "LT-20261007-080509-002",
     ]);
     await expect(readSubmissionHistory()).resolves.toHaveLength(2);
   });
+
+  it.each([{}, { name: "Teste" }, { unfilledFields: [1], values: {} }])(
+    "rejeita o resultado inválido %j do envio",
+    async (result) => {
+      mockPageResult({ ok: true, result });
+      await expect(submitTestLead(page, form)).rejects.toThrow(
+        "A página retornou uma resposta inválida.",
+      );
+      await expect(readSubmissionHistory()).resolves.toEqual([]);
+    },
+  );
 
   it("propaga o erro da página sem gravar o histórico", async () => {
     mockPageResult({
@@ -142,7 +172,7 @@ describe("Formulários da aba ativa", () => {
   });
 
   it("avisa quando o envio foi disparado e o histórico não foi gravado", async () => {
-    mockPageResult({ ok: true, result: {} });
+    mockPageResult({ ok: true, result: { unfilledFields: [], values: {} } });
     vi.spyOn(browser.storage.local, "set")
       .mockResolvedValueOnce()
       .mockRejectedValueOnce(new Error("QUOTA_BYTES"));

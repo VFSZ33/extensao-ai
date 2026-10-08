@@ -183,9 +183,155 @@
           </button>
         </form>
       </section>
+      <section>
+        <form
+          data-fixture="stock"
+          data-gtag-action="Formulário Enviado"
+          data-gtag-category="Formulário"
+          data-gtag-label="CRETA 1.0 TGDI FLEX COMFORT - Enviar"
+          novalidate
+        >
+          <input name="origin_url" type="hidden" value="" />
+          <input name="product" type="hidden" value="CRETA 1.0 TGDI" />
+          <input name="category" type="hidden" value="Seminovos" />
+          <input name="siteId" type="hidden" value="site-fixture" />
+          <input name="teamId" type="hidden" value="team-fixture" />
+          <input name="accountId" type="hidden" value="account-fixture" />
+          <input name="content_entry_id" type="hidden" value="entry-fixture" />
+          <input name="channel" type="hidden" value="Seminovos" />
+          <label>
+            Nome
+            <input id="form-field-name-4a1c7e02" name="name" required />
+          </label>
+          <label>
+            E-mail
+            <input id="form-field-email-9d3b5f10" name="email" required />
+          </label>
+          <label>
+            Telefone
+            <input
+              data-mask="phone"
+              id="form-field-phone-6e8f2a31"
+              name="phone"
+              required
+              value=""
+            />
+          </label>
+          <label>
+            Unidade
+            <select data-controlled id="form-field-unit-1b2c3d4e" name="unit">
+              <option value="">Selecione a unidade</option>
+              <option value="unit-afogados">Unidade Afogados</option>
+              <option value="unit-boa-viagem">Unidade Boa Viagem</option>
+              <option value="unit-caruaru">Unidade Caruaru</option>
+            </select>
+          </label>
+          <label>
+            Mensagem
+            <textarea
+              data-controlled
+              id="form-field-message-5f6a7b8c"
+              name="message"
+              rows="4"
+            ></textarea>
+          </label>
+          <label>
+            Melhor horário
+            <input id="form-field-bestTime-0c9d8e7f" name="bestTime" />
+          </label>
+          <fieldset>
+            <label>
+              <input name="contactPreference[]" type="checkbox" value="email" />
+              E-mail
+            </label>
+            <label>
+              <input
+                name="contactPreference[]"
+                type="checkbox"
+                value="whatsapp"
+              />
+              Whatsapp
+            </label>
+            <label>
+              <input
+                name="contactPreference[]"
+                type="checkbox"
+                value="telefone"
+              />
+              Telefone
+            </label>
+          </fieldset>
+          <fieldset>
+            <label>
+              <input name="marketingConsent[]" type="checkbox" value="true" />
+              Autorizo o uso de minhas informações pessoais.
+            </label>
+          </fieldset>
+          <button aria-label="Enviar" type="submit">Enviar</button>
+        </form>
+      </section>
       <ol aria-label="Envios recebidos" id="submissions"></ol>
     </main>
+    <button aria-label="Abrir WhatsApp" id="contact-modal-opener" type="button">
+      WhatsApp
+    </button>
+    <template id="contact-modal">
+      <div data-contact-modal>
+        <div>
+          <header>
+            <h2>Fale por WhatsApp</h2>
+            <button aria-label="Fechar" type="button">Fechar</button>
+          </header>
+          <form
+            data-fixture="contact-modal"
+            data-gtag-action="Formulário Enviado"
+            data-gtag-category="Formulário"
+            data-gtag-label="contact-form-modal - Fale por WhatsApp - iniciar conversa"
+            novalidate
+          >
+            <label>
+              NOME
+              <input name="name" placeholder="Digite seu nome completo" />
+            </label>
+            <label>
+              E-MAIL
+              <input
+                name="email"
+                placeholder="Ex: joaosilva@empresa.com"
+                type="email"
+              />
+            </label>
+            <label>
+              TELEFONE
+              <input
+                data-mask="phone"
+                name="phone"
+                placeholder="Digite seu telefone com DDD"
+                value=""
+              />
+            </label>
+            <div>
+              <span>PREFERÊNCIA DE CONTATO</span>
+              <label
+                ><input name="whatsapping" type="checkbox" />Whatsapp</label
+              >
+              <label><input name="phoning" type="checkbox" />Telefone</label>
+              <label><input name="mailing" type="checkbox" />E-mail</label>
+            </div>
+            <label>
+              <input name="dataPermissions" type="checkbox" />
+              Autorizo o uso de minhas informações pessoais para campanhas de
+              marketing.
+            </label>
+            <button aria-label="INICIAR CONVERSA" type="submit">
+              INICIAR CONVERSA
+            </button>
+          </form>
+        </div>
+      </div>
+    </template>
     <script>
+      const controlled = new Map();
       const masks = {
         cpf: (value) =>
           value
@@ -231,7 +377,7 @@
         );
       }
 
-      for (const input of document.querySelectorAll("[data-mask]")) {
+      function maskInput(input) {
         let rendered = "";
         let tracked = "";
 
@@ -257,7 +403,46 @@
         });
       }
 
+      document
+        .getElementById("contact-modal-opener")
+        .addEventListener("click", () => {
+          if (document.querySelector("[data-contact-modal]")) {
+            return;
+          }
+
+          document.body.append(
+            document.getElementById("contact-modal").content.cloneNode(true),
+          );
+
+          const modal = document.querySelector("[data-contact-modal]");
+
+          modal.querySelectorAll("[data-mask]").forEach(maskInput);
+          modal
+            .querySelector('button[aria-label="Fechar"]')
+            .addEventListener("click", () => {
+              modal.remove();
+            });
+        });
+
+      document.querySelectorAll("[data-mask]").forEach(maskInput);
+
+      for (const field of document.querySelectorAll("[data-controlled]")) {
+        controlled.set(field, field.value);
+        field.addEventListener(
+          field instanceof HTMLSelectElement ? "change" : "input",
+          () => {
+            controlled.set(field, field.value);
+          },
+        );
+      }
+
       const validators = {
+        "contact-modal": (data) =>
+          Boolean(data.name.trim()) &&
+          /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email) &&
+          /^\(\d{2}\) \d{4,5}-\d{4}$/.test(data.phone) &&
+          ("whatsapping" in data || "phoning" in data || "mailing" in data) &&
+          data.dataPermissions === "on",
         offer: (data, form) =>
           Boolean(data.name) &&
           /^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/.test(data.email) &&
@@ -270,12 +455,22 @@
           /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email) &&
           /^\d{10,11}$/.test(data.phone.replace(/\D/g, "")) &&
           hasValidCpf(data.cpf),
+        stock: (data) =>
+          Boolean(data.name.trim()) &&
+          /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email) &&
+          /^\d{10,11}$/.test(data.phone.replace(/\D/g, "")) &&
+          data.message.startsWith("Lead de teste "),
       };
 
       document.addEventListener("submit", (event) => {
         event.preventDefault();
 
         const form = event.target;
+
+        for (const [field, value] of controlled) {
+          field.value = value;
+        }
+
         const formData = new FormData(form);
         const data = {};
 

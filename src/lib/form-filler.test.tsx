@@ -1,5 +1,6 @@
 import { act, render, screen } from "@testing-library/react";
 import { useState } from "react";
+import { flushSync } from "react-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { FormDefinition } from "@/lib/form-definition";
@@ -12,9 +13,12 @@ import {
 import { createLeadData } from "@/lib/lead-data";
 
 type ControlledFormProps = {
+  detailed?: boolean;
+  frozenUnit?: boolean;
   onSubmit: (data: Record<string, FormDataEntryValue>) => void;
   phoneDigits?: number;
   requiredNotes?: boolean;
+  revertingName?: boolean;
   submitDisabled?: boolean;
 };
 
@@ -43,6 +47,13 @@ const definition: FormDefinition = {
       source: "phone",
     },
     { key: "terms", kind: "checkbox", selector: 'input[name="terms"]' },
+    {
+      key: "unit",
+      kind: "select",
+      label: "Unidade",
+      optional: true,
+      selector: 'select[name="unit"]',
+    },
   ],
   id: "controlled",
   matches: (form) => form.querySelector('input[name="terms"]') !== null,
@@ -59,13 +70,19 @@ const maskedPhone =
   lead.phone.slice(7);
 
 function ControlledForm({
+  detailed = false,
+  frozenUnit = false,
   onSubmit,
   phoneDigits = 11,
   requiredNotes = false,
+  revertingName = false,
   submitDisabled = false,
 }: ControlledFormProps) {
   const [accepted, setAccepted] = useState(false);
+  const [message, setMessage] = useState("");
+  const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
+  const [unit, setUnit] = useState("");
 
   return (
     <form
@@ -75,7 +92,19 @@ function ControlledForm({
         onSubmit(Object.fromEntries(new FormData(event.currentTarget)));
       }}
     >
-      <input name="name" />
+      <input
+        name="name"
+        onChange={(event) => {
+          setName(event.target.value);
+
+          if (revertingName) {
+            setTimeout(() => {
+              flushSync(() => setName(""));
+            }, 50);
+          }
+        }}
+        value={name}
+      />
       <input
         name="phone"
         onChange={(event) =>
@@ -94,6 +123,35 @@ function ControlledForm({
         onChange={(event) => setAccepted(event.target.checked)}
         type="checkbox"
       />
+      {detailed && (
+        <>
+          <textarea
+            name="message"
+            onChange={(event) => setMessage(event.target.value)}
+            value={message}
+          />
+          <select
+            name="unit"
+            onChange={(event) => {
+              if (!frozenUnit) {
+                setUnit(event.target.value);
+              }
+            }}
+            value={unit}
+          >
+            <option value="">Selecione a unidade</option>
+            <option value="north">Unidade Norte</option>
+            <option value="south">Unidade Sul</option>
+          </select>
+          <input name="city" />
+          <input name="color" type="radio" value="blue" />
+          <input name="color" type="radio" value="red" />
+          <input name="newsletter" type="checkbox" />
+          <input defaultValue="" name="campaign" type="hidden" />
+          <input name="code" readOnly />
+          <input disabled name="coupon" />
+        </>
+      )}
       {requiredNotes && <textarea name="notes" required />}
       <button disabled={submitDisabled} type="submit">
         Enviar
@@ -122,7 +180,10 @@ describe("Preenchimento de formulário", () => {
     render(<ControlledForm onSubmit={onSubmit} />);
     await expect(
       act(() => fillAndSubmitForm(getForm(), definition, lead)),
-    ).resolves.toEqual({ name: lead.name, phone: maskedPhone, terms: true });
+    ).resolves.toEqual({
+      unfilledFields: [],
+      values: { name: lead.name, phone: maskedPhone, terms: true },
+    });
     expect(onSubmit).toHaveBeenCalledTimes(1);
     expect(onSubmit).toHaveBeenCalledWith({
       name: lead.name,
@@ -131,12 +192,124 @@ describe("Preenchimento de formulário", () => {
     });
   });
 
+  it("preenche a caixa de texto e escolhe a opção do seletor controlados pelo React", async () => {
+    const onSubmit = vi.fn();
+    render(<ControlledForm detailed onSubmit={onSubmit} />);
+    await expect(
+      act(() =>
+        fillAndSubmitForm(getForm(), definition, lead, { unit: "south" }),
+      ),
+    ).resolves.toMatchObject({
+      values: {
+        message: lead.message,
+        unit: { label: "Unidade Sul", value: "south" },
+      },
+    });
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ message: lead.message, unit: "south" }),
+    );
+  });
+
+  it("dispara em cada campo a sequência de eventos de quem digita e sai do campo", async () => {
+    const events: string[] = [];
+    render(<ControlledForm detailed onSubmit={vi.fn()} />);
+    const form = getForm();
+
+    for (const type of [
+      "blur",
+      "change",
+      "focus",
+      "focusin",
+      "focusout",
+      "input",
+    ]) {
+      form.addEventListener(
+        type,
+        (event) => {
+          if (
+            event.target instanceof HTMLElement &&
+            !(
+              event.target instanceof HTMLInputElement &&
+              event.target.type === "checkbox"
+            )
+          ) {
+            events.push(event.target.getAttribute("name") + ":" + type);
+          }
+        },
+        true,
+      );
+    }
+
+    await act(() =>
+      fillAndSubmitForm(form, definition, lead, { unit: "south" }),
+    );
+    expect(events).toEqual(
+      ["message", "name", "phone", "unit"].flatMap((name) =>
+        ["focus", "focusin", "input", "change", "blur", "focusout"].map(
+          (type) => name + ":" + type,
+        ),
+      ),
+    );
+  });
+
+  it("deixa o seletor como a página o apresenta quando nenhuma opção é escolhida", async () => {
+    const onSubmit = vi.fn();
+    render(<ControlledForm detailed onSubmit={onSubmit} />);
+    await expect(
+      act(() => fillAndSubmitForm(getForm(), definition, lead)),
+    ).resolves.toMatchObject({
+      values: { unit: { label: "Selecione a unidade", value: "" } },
+    });
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ message: lead.message, unit: "" }),
+    );
+  });
+
+  it("avisa quais campos editáveis ficaram sem preenchimento, sem bloquear o envio", async () => {
+    const onSubmit = vi.fn();
+    render(<ControlledForm detailed onSubmit={onSubmit} />);
+    await expect(
+      act(() => fillAndSubmitForm(getForm(), definition, lead)),
+    ).resolves.toMatchObject({
+      unfilledFields: ["city", "color", "newsletter"],
+    });
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+  });
+
+  it("não envia quando o seletor não aceita a opção ou ela não existe", async () => {
+    const onSubmit = vi.fn();
+    render(<ControlledForm detailed frozenUnit onSubmit={onSubmit} />);
+    await expect(
+      act(() =>
+        fillAndSubmitForm(getForm(), definition, lead, { unit: "south" }),
+      ),
+    ).rejects.toThrow('O seletor "Unidade" não aceitou a opção escolhida.');
+    await expect(
+      act(() =>
+        fillAndSubmitForm(getForm(), definition, lead, { unit: "west" }),
+      ),
+    ).rejects.toThrow(
+      'A opção escolhida em "Unidade" não está mais na página. Atualize a lista.',
+    );
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
   it("não envia quando um campo não aceita o valor", async () => {
     const onSubmit = vi.fn();
     render(<ControlledForm onSubmit={onSubmit} phoneDigits={10} />);
     await expect(
       act(() => fillAndSubmitForm(getForm(), definition, lead)),
     ).rejects.toThrow('O campo "phone" não aceitou o valor de teste.');
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("não envia quando a página reverte o valor num render posterior", async () => {
+    const onSubmit = vi.fn();
+    render(<ControlledForm onSubmit={onSubmit} revertingName />);
+    await expect(
+      act(() => fillAndSubmitForm(getForm(), definition, lead)),
+    ).rejects.toThrow('O campo "name" não aceitou o valor de teste.');
+    expect(getForm().elements.namedItem("name")).toHaveValue("");
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
@@ -225,6 +398,13 @@ describe("Preenchimento de formulário", () => {
     { type: "other" },
     { definitionId: "controlled", index: 0, type: "submit-form" },
     { definitionId: "controlled", index: "0", lead, type: "submit-form" },
+    {
+      definitionId: "controlled",
+      index: 0,
+      lead,
+      selections: { unit: 1 },
+      type: "submit-form",
+    },
   ])("rejeita o comando inválido %j", async (command) => {
     await expect(
       runPageCommand(command, document, [definition]),

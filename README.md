@@ -4,11 +4,11 @@ Base independente para uma extensão de navegador de teste de integração de le
 
 ## O que está pronto
 
-O popup lista os formulários de lead reconhecidos na aba ativa e, a cada clique em Enviar teste, preenche o formulário escolhido com dados de teste novos e dispara o envio na página. Mostra o resultado do envio ou o erro: página sem acesso, nenhum formulário reconhecido, campo da definição ausente, campo obrigatório que a definição não preenche ou valor recusado pela página. Confirmar que o lead chegou ao painel ainda não faz parte da extensão.
+O popup lista os formulários de lead reconhecidos na aba ativa e, a cada clique em Enviar teste, preenche o formulário escolhido com dados de teste novos e dispara o envio na página. Quando o formulário tem um seletor mapeado, o popup mostra as opções reais dele na página e o envio usa a opção escolhida; Nenhuma, o padrão, deixa o seletor como a página o apresenta. Mostra o resultado do envio ou o erro: página sem acesso, nenhum formulário reconhecido, campo da definição ausente, campo obrigatório que a definição não preenche, valor recusado pela página ou opção escolhida que não está mais na página. Junto do resultado, avisa quais campos visíveis e editáveis do formulário ficaram vazios por não estarem na definição; o aviso não impede o envio. Confirmar que o lead chegou ao painel ainda não faz parte da extensão.
 
-Cada envio tem um identificador LT-AAAAMMDD-HHMMSS-NNN, com data e hora locais e uma sequência que nunca reinicia. Todos os valores derivam do identificador, então ele basta para reconstruir o lead esperado: nome Teste seguido do identificador, e-mail com o identificador em minúsculas em example.com, CPF com dígitos verificadores válidos e celular com DDD 11. As caixas de preferência de contato e de consentimento mapeadas são marcadas. Os dados são fictícios, mas o CPF e o telefone gerados podem coincidir com os de pessoas reais.
+Cada envio tem um identificador LT-AAAAMMDD-HHMMSS-NNN, com data e hora locais e uma sequência que nunca reinicia. Todos os valores derivam do identificador, então ele basta para reconstruir o lead esperado: nome Teste seguido do identificador, e-mail com o identificador em minúsculas em example.com, CPF com dígitos verificadores válidos e celular com DDD 11. A caixa de mensagem recebe Lead de teste seguido do identificador. As caixas de preferência de contato e de consentimento mapeadas são marcadas. Os dados são fictícios, mas o CPF e o telefone gerados podem coincidir com os de pessoas reais.
 
-O histórico guarda identificador, formulário, página, horário e os valores que ficaram nos campos. Ele fica no armazenamento local da extensão, sobrevive ao fechamento do popup e à navegação, e não há ação para apagá-lo; remover a extensão apaga os dados.
+O histórico guarda identificador, formulário, página, horário e os valores que ficaram nos campos; de cada seletor, o rótulo e o valor da opção que ficou selecionada. Ele fica no armazenamento local da extensão, sobrevive ao fechamento do popup e à navegação, e não há ação para apagá-lo; remover a extensão apaga os dados.
 
 O popup também permite verificar a comunicação com o background, com carregamento, sucesso, falha e nova tentativa. As mensagens e respostas são validadas.
 
@@ -20,7 +20,11 @@ As próximas etapas do fluxo de leads: acessar o Workspace com credenciais reais
 
 Cada formulário suportado tem uma definição em src/lib/form-definitions: como reconhecê-lo na página, quais campos preencher e qual controle dispara o envio. Suportar um formulário novo é criar um arquivo de definição e registrá-lo em src/lib/form-definitions/index.ts; o motor de preenchimento e o popup não mudam. O reconhecimento usa atributos estáveis da marcação, nunca classes geradas.
 
-As definições atuais vêm da página inicial dos sites Autódromo: o formulário de oferta e o formulário de seção. Campos marcados como opcionais na definição são preenchidos quando existem na página.
+Um campo da definição é um texto (input ou textarea), uma caixa de marcação ou um seletor (select). Acrescentar qualquer um deles a um formulário é editar a definição; o seletor leva o rótulo que o popup mostra, e as opções são lidas da página.
+
+As definições atuais vêm dos sites Autódromo: o formulário de oferta, o formulário de seção, que cobre também a variação das páginas de veículo, com seletor de unidade e caixa de mensagem, e o formulário do modal de contato, aberto pelo botão flutuante de WhatsApp. Campos marcados como opcionais na definição são preenchidos quando existem na página.
+
+A lista traz os formulários que estão na página quando o popup abre ou quando a lista é atualizada. Formulário que só existe depois de uma ação na página, como o de um modal, precisa estar aberto antes; a extensão não o abre.
 
 Um envio de teste em um site real cria um lead de verdade no painel desse site.
 
@@ -79,7 +83,7 @@ O npm audit aponta seis ocorrências (três altas e três críticas) na cadeia d
 
 O pré-commit executa lint e formato; commit-msg valida Conventional Commits. Hooks usam os pacotes locais e, no Windows, o shell do Git for Windows. Uma falha bloqueia o commit.
 
-Vitest usa a integração oficial WxtVitest, Testing Library, user-event e jest-dom em jsdom. Testes unitários ficam junto do código e cobrem estados da interface, carregamento, nova tentativa, validação/falhas das mensagens, geração dos dados, definições, preenchimento de campos controlados pelo React e histórico. Playwright carrega o build Manifest V3 em contexto persistente temporário do Chromium, verifica o popup com o background real e exercita o envio de ponta a ponta: aciona o ícone da extensão pelo protocolo de depuração, o que abre o popup real e concede activeTab como o clique do usuário, e envia formulários de tests/fixtures/lead-forms.html, servida localmente. Os testes nunca enviam formulários em sites reais. Relatórios estão em playwright-report e artefatos em test-results; npm exec playwright show-report abre o último relatório.
+Vitest usa a integração oficial WxtVitest, Testing Library, user-event e jest-dom em jsdom. Testes unitários ficam junto do código e cobrem estados da interface, carregamento, nova tentativa, validação/falhas das mensagens, geração dos dados, definições, preenchimento de campos, caixas de texto e seletores controlados pelo React, aviso de campos sem preenchimento e histórico. Playwright carrega o build Manifest V3 em contexto persistente temporário do Chromium, verifica o popup com o background real e exercita o envio de ponta a ponta: aciona o ícone da extensão pelo protocolo de depuração, o que abre o popup real e concede activeTab como o clique do usuário, e envia formulários de tests/fixtures/lead-forms.html, servida localmente, inclusive com a opção de seletor escolhida no popup. Os testes nunca enviam formulários em sites reais. Relatórios estão em playwright-report e artefatos em test-results; npm exec playwright show-report abre o último relatório.
 
 ## Documentação oficial
 

@@ -4,6 +4,7 @@ import { useEffect, useId, useState } from "react";
 import type { RecognizedForm } from "@/lib/page-command";
 
 import { Button } from "@/components/button";
+import { Select } from "@/components/select";
 import {
   type PageForms as DetectedPage,
   detectPageForms,
@@ -19,7 +20,8 @@ type DetectionState =
 
 type SubmissionState =
   | { formIndex: number; status: "loading" }
-  | { message: string; status: "error" | "success" }
+  | { message: string; status: "error" }
+  | { message: string; status: "success"; unfilledFields: string[] }
   | { status: "idle" };
 
 export function PageForms({ onSubmitted }: PageFormsProps) {
@@ -27,6 +29,9 @@ export function PageForms({ onSubmitted }: PageFormsProps) {
     status: "loading",
   });
   const sectionId = useId();
+  const [selections, setSelections] = useState<
+    Record<number, Record<string, null | string>>
+  >({});
   const [submission, setSubmission] = useState<SubmissionState>({
     status: "idle",
   });
@@ -48,21 +53,38 @@ export function PageForms({ onSubmitted }: PageFormsProps) {
 
   async function handleRefresh() {
     setDetection({ status: "loading" });
+    setSelections({});
     setSubmission({ status: "idle" });
     setDetection(await detectForms());
+  }
+
+  function handleSelect(formIndex: number, key: string, value: null | string) {
+    setSelections((current) => ({
+      ...current,
+      [formIndex]: { ...current[formIndex], [key]: value },
+    }));
   }
 
   async function handleSubmit(page: DetectedPage, form: RecognizedForm) {
     setSubmission({ formIndex: form.index, status: "loading" });
 
     try {
-      const record = await submitTestLead(page, form);
+      const { record, unfilledFields } = await submitTestLead(
+        page,
+        form,
+        Object.fromEntries(
+          Object.entries(selections[form.index] ?? {}).flatMap(
+            ([key, value]) => (value === null ? [] : [[key, value]]),
+          ),
+        ),
+      );
       setSubmission({
         message:
           "Envio " +
           record.id +
           " disparado. Confira o lead no painel com os dados do histórico.",
         status: "success",
+        unfilledFields,
       });
     } catch (error) {
       setSubmission({
@@ -89,32 +111,44 @@ export function PageForms({ onSubmitted }: PageFormsProps) {
       {detection.status === "ready" && detection.page.forms.length > 0 && (
         <ul className="flex flex-col gap-3">
           {detection.page.forms.map((form) => (
-            <li
-              className="flex items-center justify-between gap-3"
-              key={form.index}
-            >
-              <div
-                className="flex min-w-0 flex-col gap-1"
-                id={sectionId + "-form-" + form.index}
-              >
-                <p className="font-medium">{form.definitionName}</p>
-                <p className="wrap-anywhere text-text-secondary">
-                  {form.label || "Sem rótulo na página"}
-                </p>
+            <li className="flex flex-col gap-2" key={form.index}>
+              <div className="flex items-center justify-between gap-3">
+                <div
+                  className="flex min-w-0 flex-col gap-1"
+                  id={sectionId + "-form-" + form.index}
+                >
+                  <p className="font-medium">{form.definitionName}</p>
+                  <p className="wrap-anywhere text-text-secondary">
+                    {form.label || "Sem rótulo na página"}
+                  </p>
+                </div>
+                <Button
+                  aria-describedby={sectionId + "-form-" + form.index}
+                  disabled={submitting}
+                  loading={
+                    submission.status === "loading" &&
+                    submission.formIndex === form.index
+                  }
+                  loadingLabel="Enviando…"
+                  onClick={() => handleSubmit(detection.page, form)}
+                >
+                  <Send aria-hidden />
+                  Enviar teste
+                </Button>
               </div>
-              <Button
-                aria-describedby={sectionId + "-form-" + form.index}
-                disabled={submitting}
-                loading={
-                  submission.status === "loading" &&
-                  submission.formIndex === form.index
-                }
-                loadingLabel="Enviando…"
-                onClick={() => handleSubmit(detection.page, form)}
-              >
-                <Send aria-hidden />
-                Enviar teste
-              </Button>
+              {form.selects.map((select) => (
+                <Select
+                  aria-describedby={sectionId + "-form-" + form.index}
+                  disabled={submitting}
+                  items={[{ label: "Nenhuma", value: null }, ...select.options]}
+                  key={select.key}
+                  label={select.label}
+                  onValueChange={(value) =>
+                    handleSelect(form.index, select.key, value)
+                  }
+                  value={selections[form.index]?.[select.key] ?? null}
+                />
+              ))}
             </li>
           ))}
         </ul>
@@ -147,6 +181,16 @@ export function PageForms({ onSubmitted }: PageFormsProps) {
             {submission.message}
           </p>
         )}
+        {submission.status === "success" &&
+          submission.unfilledFields.length > 0 && (
+            <p className="wrap-anywhere text-feedback-warning">
+              {(submission.unfilledFields.length === 1
+                ? "Campo do formulário que a extensão não preencheu: "
+                : "Campos do formulário que a extensão não preencheu: ") +
+                submission.unfilledFields.join(", ") +
+                "."}
+            </p>
+          )}
         {submission.status === "error" && (
           <p className="wrap-anywhere text-feedback-error">
             {submission.message}

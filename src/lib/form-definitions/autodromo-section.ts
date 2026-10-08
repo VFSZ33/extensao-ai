@@ -43,6 +43,14 @@ export const autodromoSectionForm: FormDefinition = {
     },
     {
       comparison: "exact",
+      key: "message",
+      kind: "text",
+      optional: true,
+      selector: 'textarea[name="message"]',
+      source: "message",
+    },
+    {
+      comparison: "exact",
       key: "name",
       kind: "text",
       selector: 'input[name="name"]',
@@ -55,6 +63,13 @@ export const autodromoSectionForm: FormDefinition = {
       optional: true,
       selector: 'input[name="phone"]',
       source: "phone",
+    },
+    {
+      key: "unit",
+      kind: "select",
+      label: "Unidade",
+      optional: true,
+      selector: 'select[name="unit"]',
     },
   ],
   id: "autodromo-section",

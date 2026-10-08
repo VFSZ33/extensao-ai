@@ -45,6 +45,20 @@ describe("Histórico de envios", () => {
     });
   });
 
+  it("lê registros com e sem a opção de um seletor", async () => {
+    const withSelect = {
+      ...createRecord("LT-20261008-090000-002"),
+      values: { unit: { label: "Unidade Norte", value: "north" } },
+    };
+    await browser.storage.local.set({
+      submissionHistory: [withSelect, createRecord("LT-20261007-080509-001")],
+    });
+    await expect(readSubmissionHistory()).resolves.toEqual([
+      withSelect,
+      createRecord("LT-20261007-080509-001"),
+    ]);
+  });
+
   it("descarta registros armazenados em formato inválido", async () => {
     await browser.storage.local.set({
       submissionHistory: [
@@ -53,6 +67,10 @@ describe("Histórico de envios", () => {
         { ...createRecord("LT-20261007-080509-001"), id: "outro" },
         { ...createRecord("LT-20261007-080509-001"), submittedAt: "ontem" },
         { ...createRecord("LT-20261007-080509-001"), values: { name: 1 } },
+        {
+          ...createRecord("LT-20261007-080509-001"),
+          values: { unit: { label: "Unidade Norte" } },
+        },
         createRecord("LT-20261007-080509-002"),
       ],
     });

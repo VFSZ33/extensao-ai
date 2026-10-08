@@ -2,8 +2,8 @@ import { browser } from "wxt/browser";
 
 import { createLeadData, createSubmissionId } from "@/lib/lead-data";
 import {
-  isFilledValues,
   isRecognizedForms,
+  isSubmissionResult,
   PAGE_COMMAND_KEY,
   type PageCommand,
   parsePageResponse,
@@ -19,6 +19,11 @@ export type PageForms = {
   forms: RecognizedForm[];
   pageUrl: string;
   tabId: number;
+};
+
+export type TestLeadSubmission = {
+  record: SubmissionRecord;
+  unfilledFields: string[];
 };
 
 export async function detectPageForms(): Promise<PageForms> {
@@ -38,18 +43,20 @@ export async function detectPageForms(): Promise<PageForms> {
 export async function submitTestLead(
   page: Pick<PageForms, "pageUrl" | "tabId">,
   form: RecognizedForm,
-): Promise<SubmissionRecord> {
+  selections: Record<string, string> = {},
+): Promise<TestLeadSubmission> {
   const submittedAt = new Date();
   const id = createSubmissionId(submittedAt, await takeSubmissionSequence());
-  const values = await runInPage(
+  const { unfilledFields, values } = await runInPage(
     page.tabId,
     {
       definitionId: form.definitionId,
       index: form.index,
       lead: createLeadData(id),
+      selections,
       type: "submit-form",
     },
-    isFilledValues,
+    isSubmissionResult,
   );
   const record: SubmissionRecord = {
     definitionId: form.definitionId,
@@ -69,7 +76,7 @@ export async function submitTestLead(
     );
   }
 
-  return record;
+  return { record, unfilledFields };
 }
 
 async function runInPage<Result>(

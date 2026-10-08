@@ -6,21 +6,34 @@ import type { LeadData } from "@/lib/lead-data";
 
 import {
   type FilledValues,
+  type FormSelect,
   type PageResponse,
   parsePageCommand,
   type RecognizedForm,
+  type SubmissionResult,
 } from "@/lib/page-command";
 
-type FieldElement = HTMLInputElement | HTMLTextAreaElement;
+type EmptyField = { element: FieldElement; name: string };
+
+type FieldElement = HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement;
 
 type ResolvedField =
-  | ({ element: FieldElement } & Extract<FormFieldDefinition, { kind: "text" }>)
   | ({ element: HTMLInputElement } & Extract<
       FormFieldDefinition,
       { kind: "checkbox" }
+    >)
+  | ({ element: HTMLInputElement | HTMLTextAreaElement } & Extract<
+      FormFieldDefinition,
+      { kind: "text" }
+    >)
+  | ({ element: HTMLSelectElement } & Extract<
+      FormFieldDefinition,
+      { kind: "select" }
     >);
 
 const HEADING_SELECTOR = "h1, h2, h3, h4, h5, h6";
+const NON_FILLABLE_TYPES = ["button", "hidden", "image", "reset", "submit"];
+const PAGE_UPDATE_WAIT_MS = 250;
 
 export function detectForms(
   document: Document,
@@ -36,6 +49,7 @@ export function detectForms(
             definitionName: definition.name,
             index,
             label: describeForm(form),
+            selects: listSelects(form, definition),
           },
         ]
       : [];
@@ -46,7 +60,8 @@ export async function fillAndSubmitForm(
   form: HTMLFormElement,
   definition: FormDefinition,
   lead: LeadData,
-): Promise<FilledValues> {
+  selections: Record<string, string> = {},
+): Promise<SubmissionResult> {
   const fields = resolveFields(form, definition);
   const submitControl = form.querySelector(definition.submitSelector);
 
@@ -54,9 +69,17 @@ export async function fillAndSubmitForm(
     throw new Error("Botão de envio da definição não encontrado.");
   }
 
+  checkSelections(fields, selections);
+
   for (const field of fields) {
     if (field.kind === "text") {
-      setTextValue(field.element, lead[field.source]);
+      setFieldValue(field.element, lead[field.source]);
+    } else if (field.kind === "select") {
+      const selection = selections[field.key];
+
+      if (selection !== undefined) {
+        setFieldValue(field.element, selection);
+      }
     } else if (!field.element.checked) {
       field.element.click();
     }
@@ -64,13 +87,14 @@ export async function fillAndSubmitForm(
 
   await waitForPageUpdate();
 
-  const values = readFilledValues(fields, lead);
-  const unmappedField = findUnmappedRequiredField(form, fields);
+  const values = readFilledValues(fields, lead, selections);
+  const emptyFields = listEmptyUnmappedFields(form, fields);
+  const requiredField = emptyFields.find(({ element }) => element.required);
 
-  if (unmappedField) {
+  if (requiredField) {
     throw new Error(
       'O formulário exige o campo "' +
-        unmappedField +
+        requiredField.name +
         '", que a definição não preenche.',
     );
   }
@@ -81,14 +105,23 @@ export async function fillAndSubmitForm(
 
   submitControl.click();
 
-  return values;
+  return {
+    unfilledFields: [
+      ...new Set(
+        emptyFields
+          .filter(({ element }) => isVisibleAndEditable(element))
+          .map(({ name }) => name),
+      ),
+    ],
+    values,
+  };
 }
 
 export async function runPageCommand(
   value: unknown,
   document: Document,
   definitions: FormDefinition[],
-): Promise<PageResponse<FilledValues | RecognizedForm[]>> {
+): Promise<PageResponse<RecognizedForm[] | SubmissionResult>> {
   const command = parsePageCommand(value);
 
   if (!command) {
@@ -115,7 +148,12 @@ export async function runPageCommand(
   try {
     return {
       ok: true,
-      result: await fillAndSubmitForm(form, definition, command.lead),
+      result: await fillAndSubmitForm(
+        form,
+        definition,
+        command.lead,
+        command.selections,
+      ),
     };
   } catch (error) {
     return {
@@ -125,6 +163,33 @@ export async function runPageCommand(
           : "Não foi possível preencher o formulário.",
       ok: false,
     };
+  }
+}
+
+function checkSelections(
+  fields: ResolvedField[],
+  selections: Record<string, string>,
+): void {
+  for (const [key, selection] of Object.entries(selections)) {
+    const field = fields.find(
+      (candidate) => candidate.kind === "select" && candidate.key === key,
+    );
+
+    if (field?.kind !== "select") {
+      throw new Error(
+        'O seletor "' +
+          key +
+          '" não está mais no formulário. Atualize a lista.',
+      );
+    }
+
+    if (!listOptions(field.element).some(({ value }) => value === selection)) {
+      throw new Error(
+        'A opção escolhida em "' +
+          field.label +
+          '" não está mais na página. Atualize a lista.',
+      );
+    }
   }
 }
 
@@ -152,47 +217,89 @@ function describeForm(form: HTMLFormElement): string {
   return "";
 }
 
-function findUnmappedRequiredField(
-  form: HTMLFormElement,
-  fields: ResolvedField[],
-): string | undefined {
-  const mapped = new Set<Element>(fields.map(({ element }) => element));
-
-  for (const element of Array.from(form.elements)) {
-    if (
-      mapped.has(element) ||
-      !(
-        element instanceof HTMLInputElement ||
-        element instanceof HTMLSelectElement ||
-        element instanceof HTMLTextAreaElement
-      ) ||
-      !element.required ||
-      element.disabled
-    ) {
-      continue;
-    }
-
-    const filled =
-      element instanceof HTMLInputElement &&
-      (element.type === "checkbox" || element.type === "radio")
-        ? element.checked
-        : element.value.trim() !== "";
-
-    if (!filled) {
-      return element.name || element.id || element.tagName.toLowerCase();
-    }
+function isFilled(element: FieldElement, form: HTMLFormElement): boolean {
+  if (element instanceof HTMLInputElement && element.type === "checkbox") {
+    return element.checked;
   }
 
-  return undefined;
+  if (element instanceof HTMLInputElement && element.type === "radio") {
+    return Array.from(form.elements).some(
+      (candidate) =>
+        candidate instanceof HTMLInputElement &&
+        candidate.type === "radio" &&
+        candidate.name === element.name &&
+        candidate.checked,
+    );
+  }
+
+  return element.value.trim() !== "";
+}
+
+function isVisibleAndEditable(element: FieldElement): boolean {
+  return (
+    (element instanceof HTMLSelectElement || !element.readOnly) &&
+    (typeof element.checkVisibility !== "function" ||
+      element.checkVisibility({ visibilityProperty: true }))
+  );
 }
 
 function keepDigits(value: string): string {
   return value.replace(/\D/g, "");
 }
 
+function listEmptyUnmappedFields(
+  form: HTMLFormElement,
+  fields: ResolvedField[],
+): EmptyField[] {
+  const mapped = new Set<Element>(fields.map(({ element }) => element));
+
+  return Array.from(form.elements).flatMap((element): EmptyField[] =>
+    !mapped.has(element) &&
+    (element instanceof HTMLInputElement ||
+      element instanceof HTMLSelectElement ||
+      element instanceof HTMLTextAreaElement) &&
+    !NON_FILLABLE_TYPES.includes(element.type) &&
+    !element.matches(":disabled") &&
+    !isFilled(element, form)
+      ? [
+          {
+            element,
+            name: element.name || element.id || element.tagName.toLowerCase(),
+          },
+        ]
+      : [],
+  );
+}
+
+function listOptions(select: HTMLSelectElement): FormSelect["options"] {
+  return Array.from(select.options).flatMap((option) =>
+    option.disabled || option.value === ""
+      ? []
+      : [{ label: option.text, value: option.value }],
+  );
+}
+
+function listSelects(
+  form: HTMLFormElement,
+  definition: FormDefinition,
+): FormSelect[] {
+  return definition.fields.flatMap((field): FormSelect[] => {
+    if (field.kind !== "select") {
+      return [];
+    }
+
+    const element = form.querySelector(field.selector);
+
+    return element instanceof HTMLSelectElement
+      ? [{ key: field.key, label: field.label, options: listOptions(element) }]
+      : [];
+  });
+}
+
 function readFilledValues(
   fields: ResolvedField[],
   lead: LeadData,
+  selections: Record<string, string>,
 ): FilledValues {
   const values: FilledValues = {};
 
@@ -203,6 +310,28 @@ function readFilledValues(
       }
 
       values[field.key] = true;
+      continue;
+    }
+
+    if (field.kind === "select") {
+      const selection = selections[field.key];
+
+      if (selection !== undefined && field.element.value !== selection) {
+        throw new Error(
+          'O seletor "' + field.label + '" não aceitou a opção escolhida.',
+        );
+      }
+
+      if (field.element.required && field.element.value === "") {
+        throw new Error(
+          'O seletor "' + field.label + '" é obrigatório. Escolha uma opção.',
+        );
+      }
+
+      values[field.key] = {
+        label: field.element.selectedOptions.item(0)?.text ?? "",
+        value: field.element.value,
+      };
       continue;
     }
 
@@ -235,6 +364,10 @@ function resolveFields(
       if (element instanceof HTMLInputElement && element.type === "checkbox") {
         return [{ ...field, element }];
       }
+    } else if (field.kind === "select") {
+      if (element instanceof HTMLSelectElement) {
+        return [{ ...field, element }];
+      }
     } else if (
       element instanceof HTMLInputElement ||
       element instanceof HTMLTextAreaElement
@@ -252,24 +385,30 @@ function resolveFields(
   });
 }
 
-function setTextValue(element: FieldElement, value: string): void {
+function setFieldValue(element: FieldElement, value: string): void {
   const prototype =
-    element instanceof HTMLTextAreaElement
-      ? HTMLTextAreaElement.prototype
-      : HTMLInputElement.prototype;
+    element instanceof HTMLSelectElement
+      ? HTMLSelectElement.prototype
+      : element instanceof HTMLTextAreaElement
+        ? HTMLTextAreaElement.prototype
+        : HTMLInputElement.prototype;
   const setValue = Object.getOwnPropertyDescriptor(prototype, "value")?.set;
 
   if (!setValue) {
     throw new Error("Não foi possível preencher os campos desta página.");
   }
 
+  element.dispatchEvent(new FocusEvent("focus"));
+  element.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
   setValue.call(element, value);
   element.dispatchEvent(new Event("input", { bubbles: true }));
   element.dispatchEvent(new Event("change", { bubbles: true }));
+  element.dispatchEvent(new FocusEvent("blur"));
+  element.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
 }
 
 function waitForPageUpdate(): Promise<void> {
   return new Promise((resolve) => {
-    setTimeout(resolve, 0);
+    setTimeout(resolve, PAGE_UPDATE_WAIT_MS);
   });
 }

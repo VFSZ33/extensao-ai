@@ -21,6 +21,8 @@ describe("Histórico de envios", () => {
               values: {
                 email: "lt-20261007-080509-002@example.com",
                 mailing: false,
+                placeholder: { label: "Selecione a unidade", value: "" },
+                unit: { label: "Unidade Norte", value: "north" },
                 whatsapping: true,
               },
             },
@@ -53,12 +55,18 @@ describe("Histórico de envios", () => {
       within(items[0]!)
         .getAllByRole("term")
         .map((term) => term.textContent),
-    ).toEqual(["email", "mailing", "whatsapping"]);
+    ).toEqual(["email", "mailing", "placeholder", "unit", "whatsapping"]);
     expect(
       within(items[0]!)
         .getAllByRole("definition")
         .map((definition) => definition.textContent),
-    ).toEqual(["lt-20261007-080509-002@example.com", "desmarcado", "marcado"]);
+    ).toEqual([
+      "lt-20261007-080509-002@example.com",
+      "desmarcado",
+      "Selecione a unidade (sem valor)",
+      "Unidade Norte (north)",
+      "marcado",
+    ]);
     expect(items[1]).toHaveTextContent("LT-20261007-080501-001");
     expect(items[1]).toHaveTextContent("Formulário de seção");
   });

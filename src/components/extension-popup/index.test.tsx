@@ -111,7 +111,10 @@ describe("Popup da extensão", () => {
               typeof command === "object" &&
               command !== null &&
               "lead" in command
-                ? { ok: true, result: command.lead }
+                ? {
+                    ok: true,
+                    result: { unfilledFields: [], values: command.lead },
+                  }
                 : {
                     ok: true,
                     result: [
@@ -120,6 +123,7 @@ describe("Popup da extensão", () => {
                         definitionName: "Formulário de seção",
                         index: 1,
                         label: "Título da seção - Enviar",
+                        selects: [],
                       },
                     ],
                   },

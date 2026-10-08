@@ -1,9 +1,21 @@
 import type { LeadData } from "@/lib/lead-data";
 
-export type FilledValues = Record<string, boolean | string>;
+export type FilledValues = Record<string, boolean | SelectOption | string>;
+
+export type FormSelect = {
+  key: string;
+  label: string;
+  options: SelectOption[];
+};
 
 export type PageCommand =
-  | { definitionId: string; index: number; lead: LeadData; type: "submit-form" }
+  | {
+      definitionId: string;
+      index: number;
+      lead: LeadData;
+      selections: Record<string, string>;
+      type: "submit-form";
+    }
   | { type: "detect-forms" };
 
 export type PageResponse<Result> =
@@ -14,6 +26,14 @@ export type RecognizedForm = {
   definitionName: string;
   index: number;
   label: string;
+  selects: FormSelect[];
+};
+
+export type SelectOption = { label: string; value: string };
+
+export type SubmissionResult = {
+  unfilledFields: string[];
+  values: FilledValues;
 };
 
 export const PAGE_COMMAND_KEY = "leadIntegrationTesterPageCommand";
@@ -24,7 +44,10 @@ export function isFilledValues(value: unknown): value is FilledValues {
   return (
     isRecord(value) &&
     Object.values(value).every(
-      (entry) => typeof entry === "boolean" || typeof entry === "string",
+      (entry) =>
+        typeof entry === "boolean" ||
+        typeof entry === "string" ||
+        isSelectOption(entry),
     )
   );
 }
@@ -38,8 +61,19 @@ export function isRecognizedForms(value: unknown): value is RecognizedForm[] {
         typeof form.definitionId === "string" &&
         typeof form.definitionName === "string" &&
         Number.isInteger(form.index) &&
-        typeof form.label === "string",
+        typeof form.label === "string" &&
+        Array.isArray(form.selects) &&
+        form.selects.every(isFormSelect),
     )
+  );
+}
+
+export function isSubmissionResult(value: unknown): value is SubmissionResult {
+  return (
+    isRecord(value) &&
+    Array.isArray(value.unfilledFields) &&
+    value.unfilledFields.every((field) => typeof field === "string") &&
+    isFilledValues(value.values)
   );
 }
 
@@ -52,19 +86,20 @@ export function parsePageCommand(value: unknown): PageCommand | undefined {
     return { type: "detect-forms" };
   }
 
-  const { definitionId, index, lead } = value;
+  const { definitionId, index, lead, selections = {} } = value;
 
   if (
     value.type !== "submit-form" ||
     typeof definitionId !== "string" ||
     typeof index !== "number" ||
     !Number.isInteger(index) ||
-    !isLeadData(lead)
+    !isLeadData(lead) ||
+    !isSelections(selections)
   ) {
     return undefined;
   }
 
-  return { definitionId, index, lead, type: "submit-form" };
+  return { definitionId, index, lead, selections, type: "submit-form" };
 }
 
 export function parsePageResponse<Result>(
@@ -86,6 +121,16 @@ export function parsePageResponse<Result>(
   return undefined;
 }
 
+function isFormSelect(value: unknown): value is FormSelect {
+  return (
+    isRecord(value) &&
+    typeof value.key === "string" &&
+    typeof value.label === "string" &&
+    Array.isArray(value.options) &&
+    value.options.every(isSelectOption)
+  );
+}
+
 function isLeadData(value: unknown): value is LeadData {
   return (
     isRecord(value) && LEAD_KEYS.every((key) => typeof value[key] === "string")
@@ -94,4 +139,19 @@ function isLeadData(value: unknown): value is LeadData {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isSelections(value: unknown): value is Record<string, string> {
+  return (
+    isRecord(value) &&
+    Object.values(value).every((entry) => typeof entry === "string")
+  );
+}
+
+function isSelectOption(value: unknown): value is SelectOption {
+  return (
+    isRecord(value) &&
+    typeof value.label === "string" &&
+    typeof value.value === "string"
+  );
 }
