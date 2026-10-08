@@ -62,6 +62,10 @@
     @apply text-sm font-semibold;
   }
 
+  html {
+    scrollbar-gutter: stable;
+  }
+
   p {
     @apply text-sm;
   }
@@ -74,6 +78,18 @@
 @layer components {
   .control-label {
     @apply text-sm font-medium;
+  }
+}
+
+@layer components {
+  .popup-detail {
+    @apply text-xs;
+  }
+}
+
+@layer components {
+  .popup-section-title {
+    @apply text-base font-semibold;
   }
 }
 

@@ -9,6 +9,7 @@ export default defineConfig({
   manifest: {
     description: "Base para testar a captação e integração de leads.",
     name: "Lead Integration Tester",
+    permissions: ["activeTab", "scripting", "storage"],
   },
   manifestVersion: 3,
   modules: ["@wxt-dev/module-react"],

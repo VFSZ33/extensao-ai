@@ -6,7 +6,7 @@
 ## Estado do projeto
 
 - Extensão Manifest V3 para Chrome e Edge, com WXT, React, TypeScript e npm. Dependências e versões: `package.json` e `package-lock.json`.
-- Base funcional; o fluxo de teste e integração de leads ainda será implementado. Objetivo e limites desta entrega: `README.md`.
+- Preenchimento e envio de formulários implementados; a conferência do lead no Workspace ainda será implementada. Objetivo e limites desta entrega: `README.md`.
 - Origem da pipeline: [Pipeline v3](https://github.com/EduNunesGithub/ai-first-pipeline), commit `f80d84485f42fb647ed4c8172daaa7e3031eccbc`; arquivos genéricos preservados da base Page Builder.
 - Git: branch principal `master`. O pacote de código não inclui histórico Git; inicialização descrita em `README.md`.
 
@@ -53,7 +53,7 @@ Marcadores de supressão: `eslint-disable`, `eslint-enable`, `eslint-env`, `pret
 - Instalação reproduzível, inicialização Git, desenvolvimento e carregamento manual: `README.md`.
 - Observar o popup real da extensão e exercitar a verificação da comunicação com o background; conferir sucesso e falha.
 - A suíte e2e usa Chromium do Playwright, com perfil isolado. Não usar o perfil pessoal nem credenciais reais nos testes da base.
-- Esta base não requer credenciais, acesso a sites ou dados persistidos. Os detalhes de acesso ao Workspace pertencem às etapas futuras.
+- O preenchimento age só na aba ativa, ao acionar o popup, e grava o histórico de envios na extensão; permissões em `wxt.config.ts`. Não requer credenciais. Os detalhes de acesso ao Workspace pertencem às etapas futuras.
 - `.wxt/`, `.output/`, relatórios e resultados são gerados, ignorados e não fazem parte do código entregue.
 
 ## Arquivos protegidos

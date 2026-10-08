@@ -29,3 +29,11 @@ Formato, uma linha por entrada:
 
 - Entradas da extensão: `src/entrypoints/`; nomes exigidos pelo WXT ficam restritos às entradas, com componentes React em `src/components/`.
 - Comunicação popup/background: `src/lib/extension-messaging.ts`; validar mensagens e respostas antes de usá-las e manter erro visível na interface.
+- Acesso à página: `src/lib/page-forms.ts` injeta `src/entrypoints/lead-forms.ts` na aba ativa, sob demanda, e recebe o retorno do script; comando e resposta são validados em `src/lib/page-command.ts`. Sem content script fixo, listener na página ou permissão de host.
+- Persistência: `src/lib/submission-history.ts`. Itens de `wxt/utils/storage` na área local, validados na leitura; registro inválido é descartado, não corrigido.
+- Rolagem do popup: `scrollbar-gutter: stable` no `html`, em `src/assets/globals.css`. Sem a calha reservada, o popup entra em laço de redimensionamento quando o conteúdo passa da altura máxima que o navegador dá a ele.
+- Seções do popup: `src/components/extension-popup/page-forms/index.tsx`. Subcomponente com título próprio (`popup-section-title`) e retorno numa região `aria-live` da seção; `role="status"` e `role="alert"` ficam com a verificação da extensão.
+
+- Definição de formulário: `src/lib/form-definitions/autodromo-offer.ts`. Um arquivo por formulário, registrado em `src/lib/form-definitions/index.ts`; reconhecer por atributos estáveis, nunca por classes geradas; campo que nem toda variação tem é `optional`. O motor (`src/lib/form-filler.ts`) e o popup não mudam para suportar um formulário novo.
+- Dados de teste: `src/lib/lead-data.ts`. Todo valor preenchido deriva do identificador do envio por função pura; dado novo entra em `LeadData`, nunca é gerado na definição ou no motor.
+- E2E do fluxo na página: `tests/e2e/extension.spec.ts` (`openActionPopup`). Acionar o ícone pelo CDP para abrir o popup real com `activeTab`; páginas vêm de `tests/fixtures/`, servidas localmente. A suíte nunca envia formulário em site real; conferência manual em site real só em ambiente de testes indicado pelo humano.

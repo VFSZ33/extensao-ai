@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Formulários de lead de teste</title>
+  </head>
+  <body>
+    <main>
+      <section>
+        <h3 data-af-field="titleForm">
+          Preencha o formulário e agende seu teste drive
+        </h3>
+        <form
+          data-fixture="offer"
+          data-gtag-action="Formulário Enviado"
+          data-gtag-category="Formulário"
+          data-gtag-label="oferta - GEELY EX5 PRO - Enviar"
+        >
+          <label>
+            Nome
+            <input
+              name="name"
+              placeholder="Seu primeiro nome"
+              data-af-field="fieldsToBeRendered/name"
+            />
+          </label>
+          <label>
+            Email
+            <input
+              name="email"
+              placeholder="Ex: joaosilva@empresa.com"
+              data-af-field="fieldsToBeRendered/email"
+            />
+          </label>
+          <label>
+            Telefone
+            <input
+              name="phone"
+              placeholder="Ex: (99) 99999-9999"
+              data-af-field="fieldsToBeRendered/phone"
+              data-mask="phone"
+              value=""
+            />
+          </label>
+          <label>
+            CPF
+            <input
+              name="cpf"
+              placeholder="000.000.000-00"
+              data-af-field="fieldsToBeRendered/cpf"
+              data-mask="cpf"
+              value=""
+            />
+          </label>
+          <div data-af-field="fieldsToBeRendered/contactPreference">
+            <p>Preferência de contato</p>
+            <label><input type="checkbox" name="whatsapping" />Whatsapp</label>
+            <label><input type="checkbox" name="phoning" />Ligação</label>
+            <label><input type="checkbox" name="mailing" />E-mail</label>
+          </div>
+          <div data-af-field="fieldsToBeRendered/dataPermissions">
+            <label>
+              <input type="checkbox" name="dataPermissions" />
+              Política de privacidade
+            </label>
+          </div>
+          <button data-af-field="buttonLabel" aria-label="Enviar" type="submit">
+            Enviar
+          </button>
+        </form>
+      </section>
+      <form data-fixture="search" role="search">
+        <input name="q" placeholder="Buscar" />
+        <button type="submit">Buscar</button>
+      </form>
+      <section>
+        <form
+          novalidate
+          data-fixture="section"
+          data-gtag-action="Formulário Enviado"
+          data-gtag-category="Formulário"
+          data-gtag-label="Título da seção - Enviar"
+        >
+          <input type="hidden" name="origin_url" value="" />
+          <input type="hidden" name="product" value="Página Inicial" />
+          <input type="hidden" name="siteId" value="site-fixture" />
+          <input type="hidden" name="teamId" value="team-fixture" />
+          <input type="hidden" name="accountId" value="account-fixture" />
+          <input type="hidden" name="channel" value="Home" />
+          <label>
+            Nome
+            <input
+              name="name"
+              placeholder="Insira o Nome"
+              id="form-field-name-ce5d59a0"
+              required
+            />
+          </label>
+          <label>
+            E-mail
+            <input
+              name="email"
+              placeholder="Insira o E-mail"
+              id="form-field-email-bfcfdaba"
+              required
+            />
+          </label>
+          <label>
+            Telefone
+            <input
+              name="phone"
+              placeholder="Ex: (00) 0000-0000"
+              id="form-field-phone-0f369c93"
+              data-mask="phone"
+              value=""
+            />
+          </label>
+          <label>
+            CPF
+            <input
+              name="cpf"
+              placeholder="000.000.000-00"
+              id="form-field-cpf-23e2eb6c"
+              data-mask="cpf"
+              required
+              value=""
+            />
+          </label>
+          <input type="hidden" name="unit" value="unit-fixture" />
+          <fieldset>
+            <label>
+              <input type="checkbox" name="contactPreference[]" value="email" />
+              E-mail
+            </label>
+            <label>
+              <input
+                type="checkbox"
+                name="contactPreference[]"
+                value="whatsapp"
+              />
+              Whatsapp
+            </label>
+            <label>
+              <input
+                type="checkbox"
+                name="contactPreference[]"
+                value="telefone"
+              />
+              Telefone
+            </label>
+          </fieldset>
+          <fieldset>
+            <label>
+              <input type="checkbox" name="marketingConsent[]" value="true" />
+              Autorizo o uso de minhas informações pessoais.
+            </label>
+          </fieldset>
+          <button aria-label="Enviar" type="submit">Enviar</button>
+        </form>
+      </section>
+      <section>
+        <form
+          data-fixture="offer"
+          data-gtag-action="Formulário Enviado"
+          data-gtag-category="Formulário"
+          data-gtag-label="oferta - GEELY EX2 - Enviar"
+        >
+          <input name="name" data-af-field="fieldsToBeRendered/name" />
+          <input name="email" data-af-field="fieldsToBeRendered/email" />
+          <input
+            name="phone"
+            data-af-field="fieldsToBeRendered/phone"
+            data-mask="phone"
+            value=""
+          />
+          <div data-af-field="fieldsToBeRendered/contactPreference">
+            <label><input type="checkbox" name="whatsapping" />Whatsapp</label>
+            <label><input type="checkbox" name="phoning" />Ligação</label>
+            <label><input type="checkbox" name="mailing" />E-mail</label>
+          </div>
+          <button data-af-field="buttonLabel" aria-label="Enviar" type="submit">
+            Enviar
+          </button>
+        </form>
+      </section>
+      <ol aria-label="Envios recebidos" id="submissions"></ol>
+    </main>
+    <script>
+      const masks = {
+        cpf: (value) =>
+          value
+            .replace(/\D/g, "")
+            .slice(0, 11)
+            .replace(/(\d{3})(\d)/, "$1.$2")
+            .replace(/(\d{3})(\d)/, "$1.$2")
+            .replace(/(\d{3})(\d{1,2})$/, "$1-$2"),
+        phone: (value) => {
+          const digits = value.replace(/\D/g, "").slice(0, 11);
+
+          if (digits.length > 10) {
+            return digits.replace(/^(\d{2})(\d{5})(\d{0,4})/, "($1) $2-$3");
+          }
+
+          if (digits.length > 6) {
+            return digits.replace(/^(\d{2})(\d{4})(\d{0,4})/, "($1) $2-$3");
+          }
+
+          return digits.replace(/^(\d{0,2})/, "($1");
+        },
+      };
+      const nativeValue = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      );
+
+      function hasValidCpf(value) {
+        const digits = [...value.replace(/\D/g, "")].map(Number);
+
+        return (
+          /^\d{3}\.\d{3}\.\d{3}-\d{2}$/.test(value) &&
+          [9, 10].every((length) => {
+            const sum = digits
+              .slice(0, length)
+              .reduce(
+                (total, digit, index) => total + digit * (length + 1 - index),
+                0,
+              );
+
+            return ((sum * 10) % 11) % 10 === digits[length];
+          })
+        );
+      }
+
+      for (const input of document.querySelectorAll("[data-mask]")) {
+        let rendered = "";
+        let tracked = "";
+
+        Object.defineProperty(input, "value", {
+          configurable: true,
+          get() {
+            return nativeValue.get.call(this);
+          },
+          set(value) {
+            tracked = String(value);
+            nativeValue.set.call(this, value);
+          },
+        });
+        input.addEventListener("input", () => {
+          const current = nativeValue.get.call(input);
+
+          if (current !== tracked) {
+            rendered = masks[input.dataset.mask](current);
+          }
+
+          tracked = rendered;
+          nativeValue.set.call(input, rendered);
+        });
+      }
+
+      const validators = {
+        offer: (data, form) =>
+          Boolean(data.name) &&
+          /^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/.test(data.email) &&
+          /^\(\d{2}\) \d{4,5}-\d{4}$/.test(data.phone) &&
+          (!form.elements.namedItem("cpf") || hasValidCpf(data.cpf)) &&
+          ("whatsapping" in data || "phoning" in data || "mailing" in data),
+        search: () => false,
+        section: (data) =>
+          Boolean(data.name.trim()) &&
+          /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email) &&
+          /^\d{10,11}$/.test(data.phone.replace(/\D/g, "")) &&
+          hasValidCpf(data.cpf),
+      };
+
+      document.addEventListener("submit", (event) => {
+        event.preventDefault();
+
+        const form = event.target;
+        const formData = new FormData(form);
+        const data = {};
+
+        for (const key of new Set(formData.keys())) {
+          data[key] = key.endsWith("[]")
+            ? formData.getAll(key)
+            : formData.get(key);
+        }
+
+        const item = document.createElement("li");
+        item.textContent = JSON.stringify({
+          data,
+          form: form.dataset.gtagLabel ?? "",
+          valid: validators[form.dataset.fixture](data, form),
+        });
+        document.getElementById("submissions").append(item);
+      });
+    </script>
+  </body>
+</html>
