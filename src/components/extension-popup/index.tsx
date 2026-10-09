@@ -1,13 +1,16 @@
-import { CircleCheck, FlaskConical } from "lucide-react";
+import { CircleCheck } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import iconUrl from "@/assets/icon.svg";
 import { Button } from "@/components/button";
+import { LeadIntegrations } from "@/components/extension-popup/lead-integrations";
 import { PageForms } from "@/components/extension-popup/page-forms";
 import {
   SubmissionHistory,
   type SubmissionHistoryProps,
 } from "@/components/extension-popup/submission-history";
 import { verifyExtension } from "@/lib/extension-messaging";
+import { isPanelActive } from "@/lib/panel-leads";
 import { readSubmissionHistory } from "@/lib/submission-history";
 
 type VerificationState =
@@ -15,6 +18,9 @@ type VerificationState =
   | { status: "idle" | "loading" };
 
 export function ExtensionPopup() {
+  const [activePage, setActivePage] = useState<"page" | "panel" | "unknown">(
+    "unknown",
+  );
   const [history, setHistory] = useState<SubmissionHistoryProps["history"]>({
     status: "loading",
   });
@@ -25,6 +31,11 @@ export function ExtensionPopup() {
   useEffect(() => {
     let active = true;
 
+    void isPanelActive().then((panel) => {
+      if (active) {
+        setActivePage(panel ? "panel" : "page");
+      }
+    });
     void loadHistory().then((state) => {
       if (active) {
         setHistory(state);
@@ -57,15 +68,17 @@ export function ExtensionPopup() {
   return (
     <main className="flex w-(--spacing-popup-width) flex-col gap-6 p-6">
       <header className="flex flex-col gap-3">
-        <FlaskConical aria-hidden className="size-8 text-action-primary" />
-        <h1 className="popup-title">Teste de integração de leads</h1>
+        <img alt="" className="size-8" src={iconUrl} />
+        <h1 className="popup-title">Scanner de Leads</h1>
         <p className="text-text-secondary">
           Preencha e envie um formulário de lead da página aberta com dados de
           teste identificáveis. Use o histórico para comparar com o lead que
-          chega ao painel.
+          chega ao painel e, com o painel aberto, verifique o envio dos leads às
+          integrações.
         </p>
       </header>
-      <PageForms onSubmitted={handleSubmitted} />
+      {activePage === "page" && <PageForms onSubmitted={handleSubmitted} />}
+      {activePage === "panel" && <LeadIntegrations history={history} />}
       <SubmissionHistory history={history} />
       <section
         aria-label="Verificação da extensão"

@@ -1,5 +1,7 @@
 import type { LeadData } from "@/lib/lead-data";
 
+import { isRecord } from "@/lib/is-record";
+
 export type FilledValues = Record<string, boolean | SelectOption | string>;
 
 export type FormSelect = {
@@ -135,10 +137,6 @@ function isLeadData(value: unknown): value is LeadData {
   return (
     isRecord(value) && LEAD_KEYS.every((key) => typeof value[key] === "string")
   );
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function isSelections(value: unknown): value is Record<string, string> {

@@ -1,5 +1,6 @@
 import { browser } from "wxt/browser";
 
+import { getActiveTab } from "@/lib/active-tab";
 import { createLeadData, createSubmissionId } from "@/lib/lead-data";
 import {
   isRecognizedForms,
@@ -27,15 +28,11 @@ export type TestLeadSubmission = {
 };
 
 export async function detectPageForms(): Promise<PageForms> {
-  const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
-
-  if (tab?.id === undefined) {
-    throw new Error("Não foi possível identificar a aba ativa.");
-  }
+  const tab = await getActiveTab();
 
   return {
     forms: await runInPage(tab.id, { type: "detect-forms" }, isRecognizedForms),
-    pageUrl: tab.url ?? "",
+    pageUrl: tab.url,
     tabId: tab.id,
   };
 }

@@ -7,8 +7,9 @@ export default defineConfig({
   alias: { "@tests": resolve("tests") },
   imports: false,
   manifest: {
-    description: "Base para testar a captação e integração de leads.",
-    name: "Lead Integration Tester",
+    description:
+      "Envia leads de teste pelos formulários da página e confere as integrações no painel.",
+    name: "Scanner de Leads",
     permissions: ["activeTab", "scripting", "storage"],
   },
   manifestVersion: 3,

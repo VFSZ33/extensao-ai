@@ -20,7 +20,7 @@ describe("Popup da extensão", () => {
     const user = userEvent.setup();
     render(<ExtensionPopup />);
     expect(
-      screen.getByRole("heading", { name: "Teste de integração de leads" }),
+      screen.getByRole("heading", { name: "Scanner de Leads" }),
     ).toBeVisible();
     await user.click(
       screen.getByRole("button", { name: "Verificar extensão" }),
@@ -153,5 +153,63 @@ describe("Popup da extensão", () => {
     expect(items[0]).toHaveTextContent("Teste " + id);
     expect(items[0]).toHaveTextContent(id.toLowerCase() + "@example.com");
     expect(items[1]).toHaveTextContent("LT-20261006-101500-001");
+  });
+
+  it("no painel, troca os formulários pela verificação das integrações", async () => {
+    fakeBrowser.reset();
+    await addSubmission({
+      definitionId: "autodromo-offer",
+      definitionName: "Formulário de oferta",
+      formLabel: "oferta - GEELY EX5 PRO - Enviar",
+      id: "LT-20261006-101500-001",
+      pageUrl: "https://example.com/",
+      submittedAt: "2026-10-06T13:15:00.000Z",
+      values: { name: "Teste LT-20261006-101500-001" },
+    });
+    vi.spyOn(tabs, "query").mockResolvedValue([
+      {
+        id: 7,
+        url: "https://admin.autodromo.com.br/#/contas/11111111-1111-4111-8111-111111111111/leads?page=1",
+      },
+    ]);
+    const executeScript = vi.spyOn(browser.scripting, "executeScript");
+    render(<ExtensionPopup />);
+    expect(
+      await screen.findByRole("region", { name: "Integrações dos leads" }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "Verificar integrações" }),
+    ).toBeEnabled();
+    expect(
+      screen.queryByRole("region", { name: "Formulários da página" }),
+    ).not.toBeInTheDocument();
+    expect(
+      await within(
+        screen.getByRole("region", { name: "Histórico de envios" }),
+      ).findAllByRole("listitem"),
+    ).toHaveLength(1);
+    expect(executeScript).not.toHaveBeenCalled();
+  });
+
+  it("fora do painel, não oferece a verificação das integrações", async () => {
+    vi.spyOn(tabs, "query").mockResolvedValue([
+      { id: 7, url: "https://admin.autodromo.com.br.example.com/contas" },
+    ]);
+    vi.spyOn(browser.scripting, "executeScript").mockImplementation(
+      async () => [
+        {
+          documentId: "document",
+          frameId: 0,
+          result: { ok: true, result: [] },
+        },
+      ],
+    );
+    render(<ExtensionPopup />);
+    expect(
+      await screen.findByRole("region", { name: "Formulários da página" }),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole("region", { name: "Integrações dos leads" }),
+    ).not.toBeInTheDocument();
   });
 });

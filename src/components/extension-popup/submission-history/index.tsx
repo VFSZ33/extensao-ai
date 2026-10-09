@@ -2,16 +2,13 @@ import { useId } from "react";
 
 import type { SubmissionRecord } from "@/lib/submission-history";
 
+import { formatDateTime } from "@/lib/date-time";
+
 export type SubmissionHistoryProps = {
   history:
     | { records: SubmissionRecord[]; status: "ready" }
     | { status: "error" | "loading" };
 };
-
-const dateTimeFormat = new Intl.DateTimeFormat("pt-BR", {
-  dateStyle: "short",
-  timeStyle: "medium",
-});
 
 export function SubmissionHistory({ history }: SubmissionHistoryProps) {
   const sectionId = useId();
@@ -50,7 +47,7 @@ export function SubmissionHistory({ history }: SubmissionHistoryProps) {
               </p>
               <p className="wrap-anywhere text-text-secondary">
                 <time dateTime={record.submittedAt}>
-                  {dateTimeFormat.format(new Date(record.submittedAt))}
+                  {formatDateTime(record.submittedAt)}
                 </time>
                 {record.pageUrl && " · " + record.pageUrl}
               </p>

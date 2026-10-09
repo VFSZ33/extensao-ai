@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Painel de teste</title>
+  </head>
+  <body>
+    <main>
+      <h1>Leads da conta de teste</h1>
+      <p>Página local que representa o painel administrativo nos testes.</p>
+    </main>
+    <script>
+      window.fetch = () => {
+        document.body.dataset.pageFetch = "called";
+
+        return Promise.reject(new Error("fetch da página"));
+      };
+    </script>
+  </body>
+</html>

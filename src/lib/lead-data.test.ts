@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   createLeadData,
   createSubmissionId,
+  findSubmissionId,
   isSubmissionId,
 } from "@/lib/lead-data";
 
@@ -70,6 +71,23 @@ describe("Dados do lead de teste", () => {
       expect(cpf).not.toMatch(/^(\d)\1{10}$/);
     }
   });
+
+  it("encontra o identificador no nome e no e-mail gerados", () => {
+    const lead = createLeadData("LT-20261007-080509-012");
+    expect(findSubmissionId(lead.name)).toBe("LT-20261007-080509-012");
+    expect(findSubmissionId(lead.email)).toBe("LT-20261007-080509-012");
+    expect(findSubmissionId(lead.message)).toBe("LT-20261007-080509-012");
+    expect(findSubmissionId("LT-20260131-235959-1234")).toBe(
+      "LT-20260131-235959-1234",
+    );
+  });
+
+  it.each(["", "Bruna Exemplo", "lt-2026-1@example.com", "LT-20261007-080509"])(
+    "não encontra identificador em %j",
+    (text) => {
+      expect(findSubmissionId(text)).toBeUndefined();
+    },
+  );
 
   it.each([undefined, null, 12, "", "LT-2026-1", "teste"])(
     "rejeita o identificador inválido %j",

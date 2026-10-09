@@ -6,7 +6,9 @@ export type LeadData = {
   phone: string;
 };
 
-const SUBMISSION_ID_PATTERN = /^LT-\d{8}-\d{6}-\d{3,}$/;
+const SUBMISSION_ID_FORMAT = "LT-\\d{8}-\\d{6}-\\d{3,}";
+const SUBMISSION_ID_PATTERN = new RegExp("^" + SUBMISSION_ID_FORMAT + "$");
+const SUBMISSION_ID_SEARCH = new RegExp(SUBMISSION_ID_FORMAT, "i");
 
 export function createLeadData(submissionId: string): LeadData {
   if (!isSubmissionId(submissionId)) {
@@ -52,6 +54,10 @@ export function createSubmissionId(date: Date, sequence: number): string {
       pad(date.getSeconds(), 2),
     pad(sequence, 3),
   ].join("-");
+}
+
+export function findSubmissionId(text: string): string | undefined {
+  return SUBMISSION_ID_SEARCH.exec(text)?.[0].toUpperCase();
 }
 
 export function isSubmissionId(value: unknown): value is string {
