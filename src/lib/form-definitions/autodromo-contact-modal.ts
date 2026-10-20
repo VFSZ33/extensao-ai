@@ -1,13 +1,8 @@
 import type { FormDefinition } from "@/lib/form-definition";
 
 export const autodromoContactModalForm: FormDefinition = {
+  consentSelectors: ['input[name="dataPermissions"]'],
   fields: [
-    {
-      key: "dataPermissions",
-      kind: "checkbox",
-      optional: true,
-      selector: 'input[name="dataPermissions"]',
-    },
     {
       comparison: "exact",
       key: "email",

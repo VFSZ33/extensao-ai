@@ -1,6 +1,7 @@
 import type { FormDefinition } from "@/lib/form-definition";
 
 export const autodromoOfferForm: FormDefinition = {
+  consentSelectors: ['input[name="dataPermissions"]'],
   fields: [
     {
       comparison: "digits",
@@ -9,12 +10,6 @@ export const autodromoOfferForm: FormDefinition = {
       optional: true,
       selector: 'input[name="cpf"]',
       source: "cpf",
-    },
-    {
-      key: "dataPermissions",
-      kind: "checkbox",
-      optional: true,
-      selector: 'input[name="dataPermissions"]',
     },
     {
       comparison: "exact",

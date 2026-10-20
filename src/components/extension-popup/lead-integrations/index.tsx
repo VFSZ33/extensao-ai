@@ -1,64 +1,116 @@
+import { Form } from "@base-ui/react/form";
 import { ListChecks } from "lucide-react";
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 
 import type { SubmissionHistoryProps } from "@/components/extension-popup/submission-history";
 
 import { Button } from "@/components/button";
 import { LeadCard } from "@/components/extension-popup/lead-integrations/lead-card";
+import { ReportCopy } from "@/components/extension-popup/lead-integrations/report-copy";
 import { StatusLabel } from "@/components/extension-popup/lead-integrations/status-label";
+import { Select } from "@/components/select";
+import { TextField } from "@/components/text-field";
+import { formatDateTime } from "@/lib/date-time";
+import { describeIncompleteness } from "@/lib/integration-report";
 import {
   countLeadsByStatus,
   LEAD_STATUS_LABELS,
+  type LeadIntegrationReport,
   type LeadStatus,
-  type VerifiedLead,
 } from "@/lib/integration-status";
 import { verifyPanelLeads } from "@/lib/panel-leads";
+import {
+  DEFAULT_LEAD_LIMIT,
+  isLeadLimit,
+  LEAD_LIMITS,
+  type LeadLimit,
+  type PanelQuery,
+  SEARCH_MAX_LENGTH,
+} from "@/lib/panel-query";
 
 export type LeadIntegrationsProps = {
   history: SubmissionHistoryProps["history"];
 };
 
 type VerificationState =
-  | { leads: VerifiedLead[]; status: "ready" }
-  | { message: string; status: "error" }
+  | { checkedAt: string; message: string; status: "error" }
+  | {
+      checkedAt: string;
+      query: PanelQuery;
+      report: LeadIntegrationReport;
+      status: "ready";
+    }
   | { status: "idle" | "loading" };
 
+const LIMIT_ITEMS = LEAD_LIMITS.map((limit) => ({
+  label: String(limit),
+  value: String(limit),
+}));
+const OCCASIONAL_STATUSES: LeadStatus[] = ["not-confirmed", "unavailable"];
 const SUMMARY_STATUSES: LeadStatus[] = [
   "ok",
   "error",
+  "not-confirmed",
   "pending",
   "no-events",
   "unavailable",
 ];
 
 export function LeadIntegrations({ history }: LeadIntegrationsProps) {
+  const [limit, setLimit] = useState<LeadLimit>(DEFAULT_LEAD_LIMIT);
+  const running = useRef(false);
+  const [search, setSearch] = useState("");
   const sectionId = useId();
   const [verification, setVerification] = useState<VerificationState>({
     status: "idle",
   });
   const counts =
     verification.status === "ready"
-      ? countLeadsByStatus(verification.leads)
+      ? countLeadsByStatus(verification.report.leads)
       : undefined;
+  const gaps =
+    verification.status === "ready"
+      ? describeIncompleteness(verification.report)
+      : [];
+  const loading = verification.status === "loading";
+  const ready = verification.status === "ready" ? verification : undefined;
   const submissionIds =
     history.status === "ready"
       ? history.records.map(({ id }) => id)
       : undefined;
 
+  function handleLimitChange(value: null | string) {
+    const next = Number(value);
+
+    if (isLeadLimit(next)) {
+      setLimit(next);
+    }
+  }
+
   async function handleVerify() {
+    if (running.current) {
+      return;
+    }
+
+    running.current = true;
+    const checkedAt = new Date().toISOString();
+    const query: PanelQuery = { limit, search: search.trim() };
     setVerification({ status: "loading" });
 
     try {
-      const { leads } = await verifyPanelLeads();
-      setVerification({ leads, status: "ready" });
+      const report = await verifyPanelLeads(query);
+      setVerification({ checkedAt, query, report, status: "ready" });
     } catch (error) {
       setVerification({
+        checkedAt,
         message:
           error instanceof Error && error.message
             ? error.message
             : "Não foi possível verificar as integrações.",
         status: "error",
       });
+    } finally {
+      running.current = false;
     }
   }
 
@@ -71,44 +123,116 @@ export function LeadIntegrations({ history }: LeadIntegrationsProps) {
         Integrações dos leads
       </h2>
       <p>
-        Confere o envio dos 10 leads mais recentes da conta aberta no painel a
-        cada integração. A sessão do painel é lida só neste clique, usada apenas
-        para consultar, e nada é gravado.
+        Confere o envio dos leads mais recentes da conta aberta no painel a cada
+        integração ou, com uma busca, dos leads que a API encontrar. A sessão do
+        painel é lida só neste clique, usada apenas para consultar, e nada é
+        gravado.
       </p>
-      <Button
-        loading={verification.status === "loading"}
-        loadingLabel="Verificando integrações…"
-        onClick={handleVerify}
+      <Form
+        className="flex flex-col gap-3"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void handleVerify();
+        }}
       >
-        <ListChecks aria-hidden />
-        Verificar integrações
-      </Button>
+        <div className="flex items-end gap-3">
+          <div className="min-w-0 flex-1">
+            <TextField
+              autoComplete="off"
+              label="Busca (opcional)"
+              maxLength={SEARCH_MAX_LENGTH}
+              onValueChange={setSearch}
+              placeholder="Identificador ou e-mail"
+              readOnly={loading}
+              type="search"
+              value={search}
+            />
+          </div>
+          <div className="w-24 shrink-0">
+            <Select
+              disabled={loading}
+              items={LIMIT_ITEMS}
+              label="Quantidade"
+              onValueChange={handleLimitChange}
+              value={String(limit)}
+            />
+          </div>
+        </div>
+        <Button
+          loading={loading}
+          loadingLabel="Verificando integrações…"
+          type="submit"
+        >
+          <ListChecks aria-hidden />
+          Verificar integrações
+        </Button>
+      </Form>
       <div
         aria-atomic="true"
         aria-live="polite"
         className="flex flex-col gap-3"
       >
         {verification.status === "error" && (
-          <p className="wrap-anywhere text-feedback-error">
-            {verification.message}
-          </p>
-        )}
-        {counts && verification.status === "ready" && (
           <>
             <p className="text-text-secondary">
-              {verification.leads.length === 0
-                ? "Esta conta não tem leads."
-                : verification.leads.length === 1
-                  ? "1 lead verificado."
-                  : verification.leads.length + " leads verificados."}
+              {"Consulta falhou em "}
+              <time dateTime={verification.checkedAt}>
+                {formatDateTime(verification.checkedAt)}
+              </time>
+              .
             </p>
-            {verification.leads.length > 0 && (
+            <p className="wrap-anywhere text-feedback-error">
+              {verification.message}
+            </p>
+          </>
+        )}
+        {ready && counts && (
+          <>
+            <p
+              className={
+                gaps.length === 0
+                  ? "text-text-secondary"
+                  : "text-feedback-warning"
+              }
+            >
+              {gaps.length === 0
+                ? "Consulta concluída em "
+                : "Consulta incompleta em "}
+              <time dateTime={ready.checkedAt}>
+                {formatDateTime(ready.checkedAt)}
+              </time>
+              {gaps.length === 0
+                ? "."
+                : ": " +
+                  gaps.join("; ") +
+                  ". Verifique de novo para completar."}
+            </p>
+            {ready.query.search && (
+              <p className="wrap-anywhere text-text-secondary">
+                {"Resultado da busca por “" +
+                  ready.query.search +
+                  "” na API, até " +
+                  ready.query.limit +
+                  " leads."}
+              </p>
+            )}
+            <p className="text-text-secondary">
+              {ready.report.leads.length === 0
+                ? ready.query.search
+                  ? "Nenhum lead encontrado nesta busca."
+                  : "Esta conta não tem leads."
+                : ready.report.leads.length === 1
+                  ? "1 lead verificado."
+                  : ready.report.leads.length + " leads verificados."}
+            </p>
+            {ready.report.leads.length > 0 && (
               <ul
                 aria-label="Resumo por status"
                 className="flex flex-wrap gap-x-3 gap-y-1"
               >
                 {SUMMARY_STATUSES.filter(
-                  (status) => status !== "unavailable" || counts[status] > 0,
+                  (status) =>
+                    !OCCASIONAL_STATUSES.includes(status) || counts[status] > 0,
                 ).map((status) => (
                   <li key={status}>
                     <StatusLabel status={status}>
@@ -121,9 +245,16 @@ export function LeadIntegrations({ history }: LeadIntegrationsProps) {
           </>
         )}
       </div>
-      {verification.status === "ready" && verification.leads.length > 0 && (
+      {ready && (
+        <ReportCopy
+          checkedAt={ready.checkedAt}
+          query={ready.query}
+          report={ready.report}
+        />
+      )}
+      {ready && ready.report.leads.length > 0 && (
         <ul aria-label="Leads verificados" className="flex flex-col gap-3">
-          {verification.leads.map((lead) => (
+          {ready.report.leads.map((lead) => (
             <LeadCard key={lead.id} lead={lead} submissionIds={submissionIds} />
           ))}
         </ul>

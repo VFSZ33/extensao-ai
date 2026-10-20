@@ -15,6 +15,7 @@ import {
   PANEL_TEST_SUBMISSION_ID,
   panelConversions,
   panelHistories,
+  queryPanelConversions,
 } from "@tests/fixtures/panel";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { createServer } from "node:http";
@@ -43,10 +44,25 @@ type FixtureSession = {
   userDataDir: string;
 };
 
+type PanelFailure = {
+  headers?: Record<string, string>;
+  path: string;
+  status: number;
+};
+
 type PanelMock = {
-  requests: { headers: Record<string, string>; method: string; url: string }[];
+  requests: {
+    headers: Record<string, string>;
+    method: string;
+    time: number;
+    url: string;
+  }[];
   setSession: (expiresAt: number) => Promise<PanelTokens>;
-  state: { status?: number; submissionId?: string };
+  state: {
+    failures: PanelFailure[];
+    status?: number;
+    submissionId?: string;
+  };
 };
 
 type PanelTokens = { accessToken: string; idToken: string };
@@ -55,10 +71,26 @@ const PANEL_API_ORIGIN = "https://crmv3.autodromo.com.br";
 const PANEL_ORIGIN = "https://admin.autodromo.com.br";
 const PANEL_ACCOUNTS_URL = PANEL_ORIGIN + "/#/contas";
 
+async function confirmSubmission(
+  popup: Page,
+  site: "production" | "test" = "production",
+): Promise<void> {
+  const confirmation = popup.getByRole("group", {
+    name: "Enviar um formulário real?",
+  });
+  await expect(confirmation).toBeFocused();
+  await expect(confirmation).toContainText(
+    site === "test"
+      ? "Site de testes (homologação)"
+      : "Site de cliente (produção): o envio cria um lead real",
+  );
+  await confirmation.getByRole("button", { name: "Confirmar envio" }).click();
+}
+
 async function mockPanel(context: BrowserContext): Promise<PanelMock> {
   const panelPage = await readFile(resolve("tests/fixtures/panel-leads.html"));
   const requests: PanelMock["requests"] = [];
-  const state: PanelMock["state"] = {};
+  const state: PanelMock["state"] = { failures: [] };
 
   await context.route(PANEL_ORIGIN + "/**", (route) =>
     route.fulfill({
@@ -68,12 +100,16 @@ async function mockPanel(context: BrowserContext): Promise<PanelMock> {
   );
   await context.route(PANEL_API_ORIGIN + "/**", async (route) => {
     const request = route.request();
-    const { pathname } = new URL(request.url());
+    const { pathname, searchParams } = new URL(request.url());
+    const failureIndex = state.failures.findIndex(({ path }) =>
+      pathname.includes(path),
+    );
+    const [failure] =
+      failureIndex < 0 ? [] : state.failures.splice(failureIndex, 1);
     const body =
       pathname === "/conversions"
-        ? {
-            ...panelConversions,
-            data: panelConversions.data.map((lead, index) =>
+        ? queryPanelConversions(
+            panelConversions.data.map((lead, index) =>
               index === 1 && state.submissionId
                 ? {
                     ...lead,
@@ -82,21 +118,27 @@ async function mockPanel(context: BrowserContext): Promise<PanelMock> {
                   }
                 : lead,
             ),
-          }
+            searchParams,
+          )
         : panelHistories[pathname.split("/")[2] ?? ""];
     requests.push({
       headers: await request.allHeaders(),
       method: request.method(),
+      time: Date.now(),
       url: request.url(),
     });
     await route.fulfill({
-      body: JSON.stringify(body ?? { message: "Internal server error" }),
+      body: JSON.stringify(
+        (!failure && body) || { message: "Internal server error" },
+      ),
       contentType: "application/json",
       headers: {
         "access-control-allow-credentials": "true",
         "access-control-allow-origin": PANEL_ORIGIN,
+        "access-control-expose-headers": "retry-after",
+        ...failure?.headers,
       },
-      status: state.status ?? (body ? 200 : 500),
+      status: failure?.status ?? state.status ?? (body ? 200 : 500),
     });
   });
 
@@ -306,7 +348,16 @@ test("envia formulários da aba ativa pelo popup e mantém o histórico", async 
       .filter({ hasText: "Título da seção - Enviar" })
       .getByRole("button", { name: "Enviar teste" })
       .click();
+    await confirmSubmission(popup.page);
     await expect(forms).toContainText(/Envio LT-\d{8}-\d{6}-001 disparado\./);
+    await expect(forms).toContainText(
+      "Campo do formulário que a extensão não preencheu: marketingConsent[].",
+    );
+    await expect(
+      page
+        .locator('form[data-fixture="section"]')
+        .locator('input[name="marketingConsent[]"]'),
+    ).not.toBeChecked();
     const firstId =
       /LT-\d{8}-\d{6}-001/.exec(await forms.innerText())?.[0] ?? "";
     await expect(submissions.getByRole("listitem")).toHaveCount(1);
@@ -320,10 +371,9 @@ test("envia formulários da aba ativa pelo popup e mantém o histórico", async 
         "contactPreference[]": ["email", "whatsapp", "telefone"],
         cpf: expect.stringMatching(/^\d{3}\.\d{3}\.\d{3}-\d{2}$/),
         email: firstId.toLowerCase() + "@example.com",
-        "marketingConsent[]": ["true"],
         name: "Teste " + firstId,
         origin_url: "",
-        phone: expect.stringMatching(/^\(11\) 9\d{4}-\d{4}$/),
+        phone: expect.stringMatching(/^\(20\) 9\d{4}-\d{4}$/),
         product: "Página Inicial",
         siteId: "site-fixture",
         teamId: "team-fixture",
@@ -343,6 +393,7 @@ test("envia formulários da aba ativa pelo popup e mantém o histórico", async 
       .filter({ hasText: "oferta - GEELY EX2 - Enviar" })
       .getByRole("button", { name: "Enviar teste" })
       .click();
+    await confirmSubmission(popup.page);
     await expect(forms).toContainText(/Envio LT-\d{8}-\d{6}-002 disparado\./);
     const secondId =
       /LT-\d{8}-\d{6}-002/.exec(await forms.innerText())?.[0] ?? "";
@@ -355,7 +406,7 @@ test("envia formulários da aba ativa pelo popup e mantém o histórico", async 
         email: secondId.toLowerCase() + "@example.com",
         mailing: "on",
         name: "Teste " + secondId,
-        phone: expect.stringMatching(/^\(11\) 9\d{4}-\d{4}$/),
+        phone: expect.stringMatching(/^\(20\) 9\d{4}-\d{4}$/),
         phoning: "on",
         whatsapping: "on",
       },
@@ -435,8 +486,14 @@ test("lista o formulário do modal só depois de aberto na página e o envia", a
     ).toBeVisible();
 
     await form.getByRole("button", { name: "Enviar teste" }).click();
+    await confirmSubmission(popup.page);
     await expect(forms).toContainText(/Envio LT-\d{8}-\d{6}-001 disparado\./);
-    await expect(forms).not.toContainText("que a extensão não preencheu");
+    await expect(forms).toContainText(
+      "Campo do formulário que a extensão não preencheu: dataPermissions.",
+    );
+    await expect(
+      page.locator('[data-contact-modal] input[name="dataPermissions"]'),
+    ).not.toBeChecked();
     const firstId =
       /LT-\d{8}-\d{6}-001/.exec(await forms.innerText())?.[0] ?? "";
     await expect(submissions.getByRole("listitem")).toHaveCount(1);
@@ -445,11 +502,10 @@ test("lista o formulário do modal só depois de aberto na página e o envia", a
     );
     expect(first).toEqual({
       data: {
-        dataPermissions: "on",
         email: firstId.toLowerCase() + "@example.com",
         mailing: "on",
         name: "Teste " + firstId,
-        phone: expect.stringMatching(/^\(11\) 9\d{4}-\d{4}$/),
+        phone: expect.stringMatching(/^\(20\) 9\d{4}-\d{4}$/),
         phoning: "on",
         whatsapping: "on",
       },
@@ -464,6 +520,7 @@ test("lista o formulário do modal só depois de aberto na página e o envia", a
       page.getByRole("heading", { name: "Fale por WhatsApp" }),
     ).toHaveCount(0);
     await form.getByRole("button", { name: "Enviar teste" }).click();
+    await confirmSubmission(popup.page);
     await expect(forms).toContainText(
       "O formulário escolhido não está mais na página. Atualize a lista.",
     );
@@ -504,9 +561,10 @@ test("preenche caixa de texto e seletor, com a opção escolhida no popup", asyn
     await expect(unit).toHaveText("Nenhuma");
 
     await form.getByRole("button", { name: "Enviar teste" }).click();
+    await confirmSubmission(popup.page);
     await expect(forms).toContainText(/Envio LT-\d{8}-\d{6}-001 disparado\./);
     await expect(forms).toContainText(
-      "Campo do formulário que a extensão não preencheu: bestTime.",
+      "Campos do formulário que a extensão não preencheu: bestTime, marketingConsent[].",
     );
     const firstId =
       /LT-\d{8}-\d{6}-001/.exec(await forms.innerText())?.[0] ?? "";
@@ -523,11 +581,10 @@ test("preenche caixa de texto e seletor, com a opção escolhida no popup", asyn
         "contactPreference[]": ["email", "whatsapp", "telefone"],
         content_entry_id: "entry-fixture",
         email: firstId.toLowerCase() + "@example.com",
-        "marketingConsent[]": ["true"],
         message: "Lead de teste " + firstId + ".",
         name: "Teste " + firstId,
         origin_url: "",
-        phone: expect.stringMatching(/^\(11\) 9\d{4}-\d{4}$/),
+        phone: expect.stringMatching(/^\(20\) 9\d{4}-\d{4}$/),
         product: "CRETA 1.0 TGDI",
         siteId: "site-fixture",
         teamId: "team-fixture",
@@ -552,6 +609,7 @@ test("preenche caixa de texto e seletor, com a opção escolhida no popup", asyn
       .click();
     await expect(unit).toHaveText("Unidade Boa Viagem");
     await form.getByRole("button", { name: "Enviar teste" }).click();
+    await confirmSubmission(popup.page);
     await expect(forms).toContainText(/Envio LT-\d{8}-\d{6}-002 disparado\./);
     const secondId =
       /LT-\d{8}-\d{6}-002/.exec(await forms.innerText())?.[0] ?? "";
@@ -573,6 +631,203 @@ test("preenche caixa de texto e seletor, com a opção escolhida no popup", asyn
     await expect(history.getByRole("listitem").first()).toContainText(
       "Lead de teste " + secondId + ".",
     );
+    await popup.close();
+  } finally {
+    await close();
+  }
+});
+
+test("pede confirmação antes de enviar num site de cliente e cancela sem enviar", async () => {
+  const { close, context, extensionId, origin, page, userDataDir } =
+    await openFixturePage();
+
+  try {
+    const submissions = page.getByRole("list", { name: "Envios recebidos" });
+    const popup = await openActionPopup(
+      context,
+      extensionId,
+      origin + "/",
+      userDataDir,
+    );
+    const forms = popup.page.getByRole("region", {
+      name: "Formulários da página",
+    });
+    const section = forms
+      .getByRole("listitem")
+      .filter({ hasText: "Título da seção - Enviar" });
+    const submit = section.getByRole("button", { name: "Enviar teste" });
+    const confirmation = popup.page.getByRole("group", {
+      name: "Enviar um formulário real?",
+    });
+
+    await submit.click();
+    await expect(confirmation).toBeFocused();
+    await expect(confirmation).toContainText(
+      "Formulário de seção (Título da seção - Enviar) será preenchido e enviado de verdade em " +
+        new URL(origin).host +
+        ".",
+    );
+    await expect(confirmation).toContainText(
+      "Site de cliente (produção): o envio cria um lead real, que a concessionária recebe como contato de verdade.",
+    );
+    await expect(
+      confirmation.getByRole("button", { name: "Confirmar envio" }),
+    ).toBeVisible();
+    await confirmation.getByRole("button", { name: "Cancelar" }).click();
+    await expect(confirmation).toHaveCount(0);
+    await expect(submit).toBeFocused();
+
+    await submit.click();
+    await expect(confirmation).toBeFocused();
+    await popup.page.keyboard.press("Escape");
+    await expect(confirmation).toHaveCount(0);
+    await expect(submit).toBeFocused();
+
+    await submit.click();
+    await forms
+      .getByRole("listitem")
+      .filter({ hasText: "oferta - GEELY EX2 - Enviar" })
+      .getByRole("button", { name: "Enviar teste" })
+      .click();
+    await expect(confirmation).toHaveCount(1);
+    await expect(
+      forms
+        .getByRole("listitem")
+        .filter({ hasText: "oferta - GEELY EX2 - Enviar" })
+        .getByRole("group"),
+    ).toBeFocused();
+    await popup.page.keyboard.press("Escape");
+
+    await expect(submissions.getByRole("listitem")).toHaveCount(0);
+    await expect(
+      popup.page.getByRole("region", { name: "Histórico de envios" }),
+    ).toContainText("Nenhum envio registrado.");
+    await expect(page.locator('input[name="name"]').first()).toHaveValue("");
+    await popup.close();
+  } finally {
+    await close();
+  }
+});
+
+test("identifica o site de testes na confirmação do envio", async () => {
+  const { close, context, extensionId, page, userDataDir } =
+    await openFixturePage();
+  const testSiteUrl = "https://loja.preview-v2.autodromo.com.br/";
+
+  try {
+    const fixture = await readFile(resolve("tests/fixtures/lead-forms.html"));
+    await context.route(testSiteUrl + "**", (route) =>
+      route.fulfill({
+        body: fixture,
+        contentType: "text/html; charset=utf-8",
+      }),
+    );
+    await page.goto(testSiteUrl);
+    const submissions = page.getByRole("list", { name: "Envios recebidos" });
+    const popup = await openActionPopup(
+      context,
+      extensionId,
+      testSiteUrl,
+      userDataDir,
+    );
+    const forms = popup.page.getByRole("region", {
+      name: "Formulários da página",
+    });
+    await forms
+      .getByRole("listitem")
+      .filter({ hasText: "Título da seção - Enviar" })
+      .getByRole("button", { name: "Enviar teste" })
+      .click();
+    const confirmation = popup.page.getByRole("group", {
+      name: "Enviar um formulário real?",
+    });
+    await expect(confirmation).toContainText(
+      "será preenchido e enviado de verdade em loja.preview-v2.autodromo.com.br.",
+    );
+    await expect(confirmation).not.toContainText("Site de cliente");
+    await confirmSubmission(popup.page, "test");
+    await expect(forms).toContainText(/Envio LT-\d{8}-\d{6}-001 disparado\./);
+    await expect(submissions.getByRole("listitem")).toHaveCount(1);
+    expect(
+      JSON.parse(await submissions.getByRole("listitem").first().innerText()),
+    ).toMatchObject({ form: "Título da seção - Enviar", valid: true });
+    await popup.close();
+  } finally {
+    await close();
+  }
+});
+
+test("limpa o histórico depois da confirmação e mantém a sequência dos envios", async () => {
+  const { close, context, extensionId, origin, page, userDataDir } =
+    await openFixturePage();
+
+  try {
+    let popup = await openActionPopup(
+      context,
+      extensionId,
+      origin + "/",
+      userDataDir,
+    );
+    let forms = popup.page.getByRole("region", {
+      name: "Formulários da página",
+    });
+    let history = popup.page.getByRole("region", {
+      name: "Histórico de envios",
+    });
+    const clear = history.getByRole("button", { name: "Limpar histórico" });
+    await expect(clear).toHaveAttribute("aria-disabled", "true");
+    await forms
+      .getByRole("listitem")
+      .filter({ hasText: "Título da seção - Enviar" })
+      .getByRole("button", { name: "Enviar teste" })
+      .click();
+    await confirmSubmission(popup.page);
+    await expect(forms).toContainText(/Envio LT-\d{8}-\d{6}-001 disparado\./);
+    await expect(history.getByRole("listitem")).toHaveCount(1);
+
+    const confirmation = history.getByRole("group", {
+      name: "Limpar o histórico de envios?",
+    });
+    await clear.click();
+    await expect(confirmation).toBeFocused();
+    await expect(confirmation).toContainText(
+      "O envio registrado será apagado deste navegador.",
+    );
+    await confirmation.getByRole("button", { name: "Cancelar" }).click();
+    await expect(history.getByRole("listitem")).toHaveCount(1);
+    await clear.click();
+    await confirmation
+      .getByRole("button", { name: "Apagar histórico" })
+      .click();
+    await expect(history).toContainText("Histórico limpo.");
+    await expect(history).toContainText("Nenhum envio registrado.");
+    await expect(clear).toHaveAttribute("aria-disabled", "true");
+    await popup.close();
+
+    popup = await openActionPopup(
+      context,
+      extensionId,
+      origin + "/",
+      userDataDir,
+    );
+    forms = popup.page.getByRole("region", { name: "Formulários da página" });
+    history = popup.page.getByRole("region", { name: "Histórico de envios" });
+    await expect(history).toContainText("Nenhum envio registrado.");
+    await forms
+      .getByRole("listitem")
+      .filter({ hasText: "oferta - GEELY EX2 - Enviar" })
+      .getByRole("button", { name: "Enviar teste" })
+      .click();
+    await confirmSubmission(popup.page);
+    await expect(forms).toContainText(/Envio LT-\d{8}-\d{6}-002 disparado\./);
+    await expect(history.getByRole("listitem")).toHaveText([
+      /LT-\d{8}-\d{6}-002/,
+    ]);
+    await expect(
+      page
+        .getByRole("list", { name: "Envios recebidos" })
+        .getByRole("listitem"),
+    ).toHaveCount(2);
     await popup.close();
   } finally {
     await close();
@@ -602,6 +857,7 @@ test("verifica no painel as integrações dos leads sem expor a sessão", async 
       .filter({ hasText: "Título da seção - Enviar" })
       .getByRole("button", { name: "Enviar teste" })
       .click();
+    await confirmSubmission(popup.page);
     await expect(forms).toContainText(/Envio LT-\d{8}-\d{6}-001 disparado\./);
     await expect(
       popup.page.getByRole("region", { name: "Integrações dos leads" }),
@@ -642,8 +898,9 @@ test("verifica no painel as integrações dos leads sem expor a sessão", async 
         .getByRole("list", { name: "Resumo por status" })
         .getByRole("listitem"),
     ).toHaveText([
-      "OK: 2",
+      "OK: 1",
       "Erro: 1",
+      "Não confirmado: 1",
       "Pendente: 1",
       "Sem evento: 1",
       "Não consultado: 1",
@@ -686,16 +943,25 @@ test("verifica no painel as integrações dos leads sem expor a sessão", async 
         .nth(4)
         .getByRole("list", { name: "Integrações" })
         .getByRole("listitem"),
-    ).toHaveText(["My Honda — OK", "RD Station — OK"]);
+    ).toHaveText([
+      "My Honda — OK",
+      "RD Station — Não confirmado: há tentativas posteriores que podem ser de outro lead do mesmo contato",
+    ]);
     await expect(cards.nth(5)).toContainText(
       "Não foi possível consultar as integrações deste lead.",
+    );
+    await expect(cards.nth(5)).toContainText(
+      "A API do painel respondeu com erro (HTTP 500).",
+    );
+    await expect(integrations).toContainText(
+      /Consulta incompleta em \d{2}\/\d{2}\/\d{4}, \d{2}:\d{2}:\d{2}: 1 lead ficou sem consulta ao histórico de integrações\./,
     );
     await expect(page.locator("body")).not.toHaveAttribute(
       "data-page-fetch",
       "called",
     );
 
-    expect(panel.requests).toHaveLength(6);
+    expect(panel.requests).toHaveLength(8);
     expect(panel.requests[0]?.url).toBe(
       PANEL_API_ORIGIN +
         "/conversions?accountId=" +
@@ -708,7 +974,11 @@ test("verifica no painel as integrações dos leads sem expor a sessão", async 
         .map(({ url }) => url)
         .sort(),
     ).toEqual(
-      Object.values(PANEL_CONTACT_IDS)
+      [
+        ...Object.values(PANEL_CONTACT_IDS),
+        PANEL_CONTACT_IDS.enzo,
+        PANEL_CONTACT_IDS.enzo,
+      ]
         .map(
           (contactId) =>
             PANEL_API_ORIGIN +
@@ -720,11 +990,66 @@ test("verifica no painel as integrações dos leads sem expor a sessão", async 
         .sort(),
     );
 
+    await popup.page
+      .context()
+      .grantPermissions(["clipboard-read", "clipboard-write"]);
+    await integrations
+      .getByRole("button", { name: "Copiar relatório" })
+      .click();
+    await expect(integrations).toContainText(
+      "Relatório copiado para a área de transferência.",
+    );
+    const report = (
+      await popup.page.evaluate(() => navigator.clipboard.readText())
+    ).replaceAll("\r\n", "\n");
+    expect(report).toContain("Diagnóstico das integrações — Scanner de Leads");
+    expect(report).toContain("Escopo: os 10 leads mais recentes da conta");
+    expect(report).toContain(
+      "Situação: incompleta — 1 lead ficou sem consulta ao histórico de integrações",
+    );
+    expect(report).toContain(
+      "Por status: Erro 1, Não confirmado 1, Pendente 1, Não consultado 1, OK 1, Sem evento 1",
+    );
+    expect(report).toContain(
+      "Identificador: 00000000-0000-4000-8000-000000000001\nNome: Teste " +
+        PANEL_TEST_SUBMISSION_ID,
+    );
+    expect(report).toContain(
+      "Status: Não consultado — A API do painel respondeu com erro (HTTP 500).",
+    );
+
+    for (const leaked of [
+      accessToken,
+      idToken,
+      PANEL_ACTOR_EMAIL,
+      PANEL_REFRESH_TOKEN,
+      "Bearer",
+      "CognitoIdentityServiceProvider",
+      ...accessToken.split("."),
+      ...panelConversions.data.flatMap(({ email, phone }) => [email, phone]),
+      submissionId.toLowerCase() + "@example.com",
+    ]) {
+      expect(report).not.toContain(leaked);
+    }
+
     const exposed = await popup.page.evaluate(async () => {
       const extension: ExtensionApi = Reflect.get(globalThis, "chrome");
       const [tab] = await extension.tabs.query({
         active: true,
         currentWindow: true,
+      });
+      await extension.scripting.executeScript({
+        args: [
+          "leadIntegrationTesterPanelQuery",
+          { limit: 10, search: "" },
+          "https://admin.autodromo.com.br",
+        ],
+        func: (key: string, query: object, origin: string) => {
+          if (location.origin === origin) {
+            Reflect.set(globalThis, key, query);
+          }
+        },
+        target: { tabId: tab?.id },
       });
       const [injection] = await extension.scripting.executeScript({
         files: ["/lead-integrations.js"],
@@ -779,7 +1104,7 @@ test("verifica no painel as integrações dos leads sem expor a sessão", async 
       expect(JSON.stringify(exposure.storage)).not.toContain(panelData);
     }
 
-    expect(panel.requests).toHaveLength(12);
+    expect(panel.requests).toHaveLength(16);
 
     for (const { headers, method, url } of panel.requests) {
       expect(method).toBe("GET");
@@ -793,6 +1118,109 @@ test("verifica no painel as integrações dos leads sem expor a sessão", async 
       expect(headers["x-actor-name"]).toBeUndefined();
     }
 
+    await popup.close();
+  } finally {
+    await close();
+  }
+});
+
+test("busca o lead pela API com a quantidade escolhida e tenta de novo a consulta limitada", async () => {
+  const { close, context, extensionId, page, userDataDir } =
+    await openFixturePage();
+
+  try {
+    const panel = await mockPanel(context);
+    await panel.setSession(Date.now() + 3600000);
+    await page.goto(PANEL_LEADS_URL);
+    const popup = await openActionPopup(
+      context,
+      extensionId,
+      PANEL_LEADS_URL,
+      userDataDir,
+    );
+    const integrations = popup.page.getByRole("region", {
+      name: "Integrações dos leads",
+    });
+    const search = integrations.getByRole("searchbox", {
+      name: "Busca (opcional)",
+    });
+    const quantity = integrations.getByRole("combobox", {
+      name: "Quantidade",
+    });
+    await expect(quantity).toHaveText("10");
+    await quantity.click();
+    await popup.page.getByRole("option", { exact: true, name: "5" }).click();
+    await expect(quantity).toHaveText("5");
+    await search.fill(PANEL_TEST_SUBMISSION_ID);
+    await search.press("Enter");
+    await expect(integrations).toContainText(
+      "Resultado da busca por “" +
+        PANEL_TEST_SUBMISSION_ID +
+        "” na API, até 5 leads.",
+    );
+    await expect(integrations).toContainText("1 lead verificado.");
+    await expect(integrations).toContainText(
+      /Consulta concluída em \d{2}\/\d{2}\/\d{4}, \d{2}:\d{2}:\d{2}\./,
+    );
+    const cards = integrations
+      .getByRole("list", { name: "Leads verificados" })
+      .locator(":scope > li");
+    await expect(cards).toHaveCount(1);
+    await expect(
+      cards
+        .first()
+        .getByRole("list", { name: "Integrações" })
+        .getByRole("listitem"),
+    ).toHaveText([
+      "My Honda — OK",
+      "RD Station — Erro: Parâmetros incompletos [ 3f9a1c ]",
+    ]);
+    expect(panel.requests.map(({ url }) => url)).toEqual([
+      PANEL_API_ORIGIN +
+        "/conversions?accountId=" +
+        PANEL_ACCOUNT_ID +
+        "&limit=5&page=1&search=" +
+        PANEL_TEST_SUBMISSION_ID,
+      PANEL_API_ORIGIN +
+        "/contacts/" +
+        PANEL_CONTACT_IDS.test +
+        "/integration-histories?accountId=" +
+        PANEL_ACCOUNT_ID,
+    ]);
+
+    panel.requests.length = 0;
+    panel.state.failures.push({
+      headers: { "retry-after": "1" },
+      path: PANEL_CONTACT_IDS.caio,
+      status: 429,
+    });
+    await search.fill("");
+    await quantity.click();
+    await popup.page.getByRole("option", { exact: true, name: "20" }).click();
+    await integrations
+      .getByRole("button", { name: "Verificar integrações" })
+      .click();
+    await expect(integrations).toContainText("6 leads verificados.");
+    await expect(integrations).not.toContainText("Resultado da busca");
+    await expect(cards).toHaveCount(6);
+    await expect(cards.nth(2)).toContainText("RD Station — Pendente");
+    expect(panel.requests[0]?.url).toBe(
+      PANEL_API_ORIGIN +
+        "/conversions?accountId=" +
+        PANEL_ACCOUNT_ID +
+        "&limit=20&page=1",
+    );
+    const caio = panel.requests.filter(({ url }) =>
+      url.includes(PANEL_CONTACT_IDS.caio),
+    );
+    expect(caio).toHaveLength(2);
+    expect((caio[1]?.time ?? 0) - (caio[0]?.time ?? 0)).toBeGreaterThanOrEqual(
+      900,
+    );
+    expect(panel.requests).toHaveLength(9);
+    expect(panel.requests.map(({ method }) => method)).toEqual(
+      Array.from({ length: 9 }, () => "GET"),
+    );
     await popup.close();
   } finally {
     await close();

@@ -8,6 +8,8 @@ export type PanelSessionOptions = {
   username?: string;
 };
 
+type PanelConversion = ReturnType<typeof createConversion>;
+
 export const PANEL_ACCOUNT_ID = "11111111-1111-4111-8111-111111111111";
 export const PANEL_ACTOR_EMAIL = "usuario.ficticio@example.com";
 export const PANEL_CONTACT_IDS = {
@@ -26,54 +28,90 @@ export const PANEL_TEST_SUBMISSION_ID = "LT-20261008-141748-012";
 
 export const panelConversions = {
   data: [
-    createConversion({
-      contactId: PANEL_CONTACT_IDS.test,
-      createdAt: "2026-10-08T17:17:48.859Z",
-      email: "lt-20261008-141748-012@example.com",
-      id: "00000000-0000-4000-8000-000000000001",
-      name: "Teste LT-20261008-141748-012",
-      phone: "11900000001",
-    }),
-    createConversion({
-      contactId: PANEL_CONTACT_IDS.bruna,
-      createdAt: "2026-10-08T16:00:00.000Z",
-      email: "bruna.exemplo@example.com",
-      id: "00000000-0000-4000-8000-000000000002",
-      name: "Bruna Exemplo",
-      phone: "11900000002",
-    }),
-    createConversion({
-      contactId: PANEL_CONTACT_IDS.caio,
-      createdAt: "2026-10-08T15:00:00.000Z",
-      email: "caio.ficticio@example.com",
-      id: "00000000-0000-4000-8000-000000000003",
-      name: "Caio Fictício",
-      phone: "11900000003",
-    }),
-    createConversion({
-      contactId: PANEL_CONTACT_IDS.dora,
-      createdAt: "2026-10-08T14:00:00.000Z",
-      email: "dora.modelo@example.com",
-      id: "00000000-0000-4000-8000-000000000004",
-      name: "Dora Modelo",
-      phone: "11900000004",
-    }),
-    createConversion({
-      contactId: PANEL_CONTACT_IDS.bruna,
-      createdAt: "2026-10-06T18:14:30.500Z",
-      email: "bruna.exemplo@example.com",
-      id: "00000000-0000-4000-8000-000000000005",
-      name: "Bruna Exemplo",
-      phone: "11900000002",
-    }),
-    createConversion({
-      contactId: PANEL_CONTACT_IDS.enzo,
-      createdAt: "2026-10-05T12:00:00.000Z",
-      email: "enzo.amostra@example.com",
-      id: "00000000-0000-4000-8000-000000000006",
-      name: "Enzo Amostra",
-      phone: "11900000006",
-    }),
+    createConversion(
+      {
+        contactId: PANEL_CONTACT_IDS.test,
+        createdAt: "2026-10-08T17:17:48.859Z",
+        email: "lt-20261008-141748-012@example.com",
+        id: "00000000-0000-4000-8000-000000000001",
+        name: "Teste LT-20261008-141748-012",
+        phone: "11900000001",
+      },
+      {
+        createdAt: "2026-10-08T17:17:48.862Z",
+        updatedAt: "2026-10-08T17:17:48.862Z",
+      },
+    ),
+    createConversion(
+      {
+        contactId: PANEL_CONTACT_IDS.bruna,
+        createdAt: "2026-10-08T16:00:00.000Z",
+        email: "bruna.exemplo@example.com",
+        id: "00000000-0000-4000-8000-000000000002",
+        name: "Bruna Exemplo",
+        phone: "11900000002",
+      },
+      {
+        createdAt: "2026-10-06T18:14:30.503Z",
+        updatedAt: "2026-10-08T16:00:00.004Z",
+      },
+    ),
+    createConversion(
+      {
+        contactId: PANEL_CONTACT_IDS.caio,
+        createdAt: "2026-10-08T15:00:00.000Z",
+        email: "caio.ficticio@example.com",
+        id: "00000000-0000-4000-8000-000000000003",
+        name: "Caio Fictício",
+        phone: "11900000003",
+      },
+      {
+        createdAt: "2026-10-08T15:00:00.002Z",
+        updatedAt: "2026-10-08T15:00:00.002Z",
+      },
+    ),
+    createConversion(
+      {
+        contactId: PANEL_CONTACT_IDS.dora,
+        createdAt: "2026-10-08T14:00:00.000Z",
+        email: "dora.modelo@example.com",
+        id: "00000000-0000-4000-8000-000000000004",
+        name: "Dora Modelo",
+        phone: "11900000004",
+      },
+      {
+        createdAt: "2026-10-08T14:00:00.002Z",
+        updatedAt: "2026-10-08T14:00:00.002Z",
+      },
+    ),
+    createConversion(
+      {
+        contactId: PANEL_CONTACT_IDS.bruna,
+        createdAt: "2026-10-06T18:14:30.500Z",
+        email: "bruna.exemplo@example.com",
+        id: "00000000-0000-4000-8000-000000000005",
+        name: "Bruna Exemplo",
+        phone: "11900000002",
+      },
+      {
+        createdAt: "2026-10-06T18:14:30.503Z",
+        updatedAt: "2026-10-08T16:00:00.004Z",
+      },
+    ),
+    createConversion(
+      {
+        contactId: PANEL_CONTACT_IDS.enzo,
+        createdAt: "2026-10-05T12:00:00.000Z",
+        email: "enzo.amostra@example.com",
+        id: "00000000-0000-4000-8000-000000000006",
+        name: "Enzo Amostra",
+        phone: "11900000006",
+      },
+      {
+        createdAt: "2026-10-05T12:00:00.002Z",
+        updatedAt: "2026-10-05T12:00:00.002Z",
+      },
+    ),
   ],
   pagination: { limit: 10, page: 1, total: 6, totalPages: 1 },
 };
@@ -129,33 +167,39 @@ export const panelReport = {
       email: "lt-20261008-141748-012@example.com",
       id: "00000000-0000-4000-8000-000000000001",
       integrations: [
-        { message: "", name: "My Honda", status: "ok" },
+        { message: "", name: "My Honda", reason: "", status: "ok" },
         {
           message: "Parâmetros incompletos [ 3f9a1c ]",
           name: "RD Station",
+          reason: "",
           status: "error",
         },
       ],
       name: "Teste LT-20261008-141748-012",
       phone: "11900000001",
+      reason: "",
       status: "error",
     },
     {
       createdAt: "2026-10-08T16:00:00.000Z",
       email: "bruna.exemplo@example.com",
       id: "00000000-0000-4000-8000-000000000002",
-      integrations: [{ message: "", name: "Syonet", status: "ok" }],
+      integrations: [{ message: "", name: "Syonet", reason: "", status: "ok" }],
       name: "Bruna Exemplo",
       phone: "11900000002",
+      reason: "",
       status: "ok",
     },
     {
       createdAt: "2026-10-08T15:00:00.000Z",
       email: "caio.ficticio@example.com",
       id: "00000000-0000-4000-8000-000000000003",
-      integrations: [{ message: "", name: "RD Station", status: "pending" }],
+      integrations: [
+        { message: "", name: "RD Station", reason: "", status: "pending" },
+      ],
       name: "Caio Fictício",
       phone: "11900000003",
+      reason: "",
       status: "pending",
     },
     {
@@ -165,6 +209,7 @@ export const panelReport = {
       integrations: [],
       name: "Dora Modelo",
       phone: "11900000004",
+      reason: "",
       status: "no-events",
     },
     {
@@ -172,12 +217,19 @@ export const panelReport = {
       email: "bruna.exemplo@example.com",
       id: "00000000-0000-4000-8000-000000000005",
       integrations: [
-        { message: "", name: "My Honda", status: "ok" },
-        { message: "", name: "RD Station", status: "ok" },
+        { message: "", name: "My Honda", reason: "", status: "ok" },
+        {
+          message: "",
+          name: "RD Station",
+          reason:
+            "há tentativas posteriores que podem ser de outro lead do mesmo contato",
+          status: "not-confirmed",
+        },
       ],
       name: "Bruna Exemplo",
       phone: "11900000002",
-      status: "ok",
+      reason: "",
+      status: "not-confirmed",
     },
     {
       createdAt: "2026-10-05T12:00:00.000Z",
@@ -186,9 +238,11 @@ export const panelReport = {
       integrations: [],
       name: "Enzo Amostra",
       phone: "11900000006",
+      reason: "A API do painel respondeu com erro (HTTP 500).",
       status: "unavailable",
     },
   ],
+  missingLeads: 0,
 };
 
 export function createPanelCookies({
@@ -243,27 +297,49 @@ export function createPanelToken(payload: Record<string, unknown>): string {
   ].join(".");
 }
 
+export function queryPanelConversions(
+  leads: PanelConversion[],
+  parameters: URLSearchParams,
+) {
+  const limit = Number(parameters.get("limit") ?? "10");
+  const term = (parameters.get("search") ?? "").toLowerCase();
+  const found = leads.filter(
+    ({ email, name, phone }) =>
+      !term ||
+      [email, name, phone].some((value) => value.toLowerCase().includes(term)),
+  );
+
+  return {
+    data: found.slice(0, limit),
+    pagination: {
+      limit,
+      page: 1,
+      total: found.length,
+      totalPages: Math.max(1, Math.ceil(found.length / limit)),
+    },
+  };
+}
+
 export function toCookieHeader(cookies: PanelCookie[]): string {
   return cookies.map(({ name, value }) => name + "=" + value).join("; ");
 }
 
-function createConversion(lead: {
-  contactId: string;
-  createdAt: string;
-  email: string;
-  id: string;
-  name: string;
-  phone: string;
-}) {
+function createConversion(
+  lead: {
+    contactId: string;
+    createdAt: string;
+    email: string;
+    id: string;
+    name: string;
+    phone: string;
+  },
+  contact: { createdAt: string; updatedAt: string },
+) {
   return {
     ...lead,
     accountId: PANEL_ACCOUNT_ID,
     channel: "Home",
-    contact: {
-      createdAt: "2026-10-01T08:00:00.000Z",
-      id: lead.contactId,
-      name: lead.name,
-    },
+    contact: { ...contact, id: lead.contactId, name: lead.name },
     customParameters: {},
     product: "Página Inicial",
     status: "NEW",

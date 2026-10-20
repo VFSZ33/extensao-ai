@@ -1,17 +1,61 @@
-import { useId } from "react";
+import { Trash2 } from "lucide-react";
+import { useId, useRef, useState } from "react";
 
-import type { SubmissionRecord } from "@/lib/submission-history";
-
+import { Button } from "@/components/button";
+import { Confirmation } from "@/components/confirmation";
 import { formatDateTime } from "@/lib/date-time";
+import {
+  clearSubmissionHistory,
+  HISTORY_MAX_RECORDS,
+  HISTORY_RETENTION_DAYS,
+  type SubmissionRecord,
+} from "@/lib/submission-history";
 
 export type SubmissionHistoryProps = {
   history:
     | { records: SubmissionRecord[]; status: "ready" }
     | { status: "error" | "loading" };
+  onCleared: () => void;
 };
 
-export function SubmissionHistory({ history }: SubmissionHistoryProps) {
+export function SubmissionHistory({
+  history,
+  onCleared,
+}: SubmissionHistoryProps) {
+  const clearButton = useRef<HTMLElement>(null);
+  const [clearing, setClearing] = useState<"confirming" | "idle" | "loading">(
+    "idle",
+  );
+  const [feedback, setFeedback] = useState<"cleared" | "error" | "none">(
+    "none",
+  );
+  const recordCount = history.status === "ready" ? history.records.length : 0;
   const sectionId = useId();
+
+  function handleCancel() {
+    setClearing("idle");
+    clearButton.current?.focus();
+  }
+
+  async function handleClear() {
+    setClearing("loading");
+
+    try {
+      await clearSubmissionHistory();
+      setFeedback("cleared");
+    } catch {
+      setFeedback("error");
+    }
+
+    setClearing("idle");
+    clearButton.current?.focus();
+    onCleared();
+  }
+
+  function handleOpen() {
+    setFeedback("none");
+    setClearing("confirming");
+  }
 
   return (
     <section
@@ -21,6 +65,42 @@ export function SubmissionHistory({ history }: SubmissionHistoryProps) {
       <h2 className="popup-section-title" id={sectionId}>
         Histórico de envios
       </h2>
+      <p className="text-text-secondary">
+        {"Guarda neste navegador os " +
+          HISTORY_MAX_RECORDS +
+          " envios mais recentes, por até " +
+          HISTORY_RETENTION_DAYS +
+          " dias."}
+      </p>
+      <Button
+        aria-expanded={clearing !== "idle"}
+        disabled={recordCount === 0 || clearing === "loading"}
+        focusableWhenDisabled
+        onClick={handleOpen}
+        ref={clearButton}
+        variant="secondary"
+      >
+        <Trash2 aria-hidden />
+        Limpar histórico
+      </Button>
+      {clearing !== "idle" && (
+        <Confirmation
+          confirmLabel="Apagar histórico"
+          confirmVariant="destructive"
+          loading={clearing === "loading"}
+          loadingLabel="Apagando…"
+          onCancel={handleCancel}
+          onConfirm={handleClear}
+          title="Limpar o histórico de envios?"
+        >
+          <p>
+            {(recordCount === 1
+              ? "O envio registrado será apagado"
+              : "Os " + recordCount + " envios registrados serão apagados") +
+              " deste navegador. Os leads continuam nos sites e no painel, e a sequência dos identificadores não recomeça."}
+          </p>
+        </Confirmation>
+      )}
       {history.status === "loading" && (
         <p className="text-text-secondary">Carregando histórico…</p>
       )}
@@ -74,6 +154,16 @@ export function SubmissionHistory({ history }: SubmissionHistoryProps) {
           ))}
         </ul>
       )}
+      <div aria-atomic="true" aria-live="polite">
+        {feedback === "cleared" && (
+          <p className="text-action-primary">Histórico limpo.</p>
+        )}
+        {feedback === "error" && (
+          <p className="text-feedback-error">
+            Não foi possível limpar o histórico. Tente de novo.
+          </p>
+        )}
+      </div>
     </section>
   );
 }

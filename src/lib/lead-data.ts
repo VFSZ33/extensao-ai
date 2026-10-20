@@ -9,6 +9,7 @@ export type LeadData = {
 const SUBMISSION_ID_FORMAT = "LT-\\d{8}-\\d{6}-\\d{3,}";
 const SUBMISSION_ID_PATTERN = new RegExp("^" + SUBMISSION_ID_FORMAT + "$");
 const SUBMISSION_ID_SEARCH = new RegExp(SUBMISSION_ID_FORMAT, "i");
+const TEST_PHONE_AREA_CODE = "20";
 
 export function createLeadData(submissionId: string): LeadData {
   if (!isSubmissionId(submissionId)) {
@@ -31,7 +32,7 @@ export function createLeadData(submissionId: string): LeadData {
     email: submissionId.toLowerCase() + "@example.com",
     message: "Lead de teste " + submissionId + ".",
     name: "Teste " + submissionId,
-    phone: ["119", 6 + nextDigit(4), ...phoneSuffix].join(""),
+    phone: [TEST_PHONE_AREA_CODE, 9, 6 + nextDigit(4), ...phoneSuffix].join(""),
   };
 }
 

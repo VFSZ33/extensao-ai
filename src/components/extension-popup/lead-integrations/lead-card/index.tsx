@@ -70,7 +70,10 @@ export function LeadCard({ lead, submissionIds }: LeadCardProps) {
                   (integration.status === "error"
                     ? ": " +
                       (integration.message || "motivo não informado pela API")
-                    : "")}
+                    : integration.status === "not-confirmed" &&
+                        integration.reason
+                      ? ": " + integration.reason
+                      : "")}
               </StatusLabel>
             </li>
           ))}
@@ -85,6 +88,9 @@ export function LeadCard({ lead, submissionIds }: LeadCardProps) {
         <p className="text-text-secondary">
           Não foi possível consultar as integrações deste lead.
         </p>
+      )}
+      {lead.status === "unavailable" && lead.reason && (
+        <p className="wrap-anywhere text-text-secondary">{lead.reason}</p>
       )}
     </li>
   );

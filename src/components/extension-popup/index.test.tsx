@@ -90,7 +90,7 @@ describe("Popup da extensão", () => {
       formLabel: "oferta - GEELY EX5 PRO - Enviar",
       id: "LT-20261006-101500-001",
       pageUrl: "https://example.com/",
-      submittedAt: "2026-10-06T13:15:00.000Z",
+      submittedAt: new Date().toISOString(),
       values: { name: "Teste LT-20261006-101500-001" },
     });
     vi.spyOn(tabs, "query").mockResolvedValue([
@@ -138,6 +138,7 @@ describe("Popup da extensão", () => {
     await user.click(
       await screen.findByRole("button", { name: "Enviar teste" }),
     );
+    await user.click(screen.getByRole("button", { name: "Confirmar envio" }));
     const message = await screen.findByText(
       /^Envio LT-\d{8}-\d{6}-001 disparado\./,
     );
@@ -163,7 +164,7 @@ describe("Popup da extensão", () => {
       formLabel: "oferta - GEELY EX5 PRO - Enviar",
       id: "LT-20261006-101500-001",
       pageUrl: "https://example.com/",
-      submittedAt: "2026-10-06T13:15:00.000Z",
+      submittedAt: new Date().toISOString(),
       values: { name: "Teste LT-20261006-101500-001" },
     });
     vi.spyOn(tabs, "query").mockResolvedValue([

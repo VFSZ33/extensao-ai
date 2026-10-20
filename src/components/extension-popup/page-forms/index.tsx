@@ -1,15 +1,17 @@
-import { RefreshCw, Send } from "lucide-react";
-import { useEffect, useId, useState } from "react";
+import { FlaskConical, RefreshCw, Send, TriangleAlert } from "lucide-react";
+import { useEffect, useId, useRef, useState } from "react";
 
 import type { RecognizedForm } from "@/lib/page-command";
 
 import { Button } from "@/components/button";
+import { Confirmation } from "@/components/confirmation";
 import { Select } from "@/components/select";
 import {
   type PageForms as DetectedPage,
   detectPageForms,
   submitTestLead,
 } from "@/lib/page-forms";
+import { classifySite } from "@/lib/site-environment";
 
 export type PageFormsProps = { onSubmitted: () => void };
 
@@ -25,6 +27,7 @@ type SubmissionState =
   | { status: "idle" };
 
 export function PageForms({ onSubmitted }: PageFormsProps) {
+  const [confirming, setConfirming] = useState<null | number>(null);
   const [detection, setDetection] = useState<DetectionState>({
     status: "loading",
   });
@@ -36,6 +39,8 @@ export function PageForms({ onSubmitted }: PageFormsProps) {
     status: "idle",
   });
   const submitting = submission.status === "loading";
+  const submittingRef = useRef(false);
+  const triggers = useRef(new Map<number, HTMLElement>());
 
   useEffect(() => {
     let active = true;
@@ -51,7 +56,19 @@ export function PageForms({ onSubmitted }: PageFormsProps) {
     };
   }, []);
 
+  function handleCancel(formIndex: number) {
+    setConfirming(null);
+    triggers.current.get(formIndex)?.focus();
+  }
+
+  function handleConfirm(page: DetectedPage, form: RecognizedForm) {
+    setConfirming(null);
+    triggers.current.get(form.index)?.focus();
+    void handleSubmit(page, form);
+  }
+
   async function handleRefresh() {
+    setConfirming(null);
     setDetection({ status: "loading" });
     setSelections({});
     setSubmission({ status: "idle" });
@@ -66,6 +83,11 @@ export function PageForms({ onSubmitted }: PageFormsProps) {
   }
 
   async function handleSubmit(page: DetectedPage, form: RecognizedForm) {
+    if (submittingRef.current) {
+      return;
+    }
+
+    submittingRef.current = true;
     setSubmission({ formIndex: form.index, status: "loading" });
 
     try {
@@ -93,8 +115,14 @@ export function PageForms({ onSubmitted }: PageFormsProps) {
       });
     }
 
+    submittingRef.current = false;
     onSubmitted();
   }
+
+  const site =
+    detection.status === "ready"
+      ? classifySite(detection.page.pageUrl)
+      : undefined;
 
   return (
     <section
@@ -106,7 +134,7 @@ export function PageForms({ onSubmitted }: PageFormsProps) {
       </h2>
       <p>
         Cada envio preenche o formulário escolhido com dados de teste novos e
-        dispara o envio na página.
+        dispara o envio na página, depois da sua confirmação.
       </p>
       {detection.status === "ready" && detection.page.forms.length > 0 && (
         <ul className="flex flex-col gap-3">
@@ -124,13 +152,23 @@ export function PageForms({ onSubmitted }: PageFormsProps) {
                 </div>
                 <Button
                   aria-describedby={sectionId + "-form-" + form.index}
+                  aria-expanded={confirming === form.index}
                   disabled={submitting}
                   loading={
                     submission.status === "loading" &&
                     submission.formIndex === form.index
                   }
                   loadingLabel="Enviando…"
-                  onClick={() => handleSubmit(detection.page, form)}
+                  onClick={() => setConfirming(form.index)}
+                  ref={(element) => {
+                    if (element) {
+                      triggers.current.set(form.index, element);
+                    }
+
+                    return () => {
+                      triggers.current.delete(form.index);
+                    };
+                  }}
                 >
                   <Send aria-hidden />
                   Enviar teste
@@ -149,6 +187,54 @@ export function PageForms({ onSubmitted }: PageFormsProps) {
                   value={selections[form.index]?.[select.key] ?? null}
                 />
               ))}
+              {confirming === form.index && site && (
+                <Confirmation
+                  confirmLabel="Confirmar envio"
+                  confirmVariant={
+                    site.kind === "test" ? "primary" : "destructive"
+                  }
+                  onCancel={() => handleCancel(form.index)}
+                  onConfirm={() => handleConfirm(detection.page, form)}
+                  title="Enviar um formulário real?"
+                  tone={site.kind === "test" ? "default" : "critical"}
+                >
+                  <p className="wrap-anywhere">
+                    {form.definitionName +
+                      " (" +
+                      (form.label || "sem rótulo na página") +
+                      ") será preenchido e enviado de verdade em " +
+                      (site.host || "um site não identificado") +
+                      "."}
+                  </p>
+                  {site.kind === "test" ? (
+                    <div className="flex items-start gap-2 text-text-secondary">
+                      <span className="flex h-5 shrink-0 items-center">
+                        <FlaskConical
+                          aria-hidden
+                          className="size-(--spacing-icon-sm)"
+                        />
+                      </span>
+                      <p>
+                        Site de testes (homologação): o lead vai para o painel
+                        do ambiente de testes.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="flex items-start gap-2 text-feedback-error">
+                      <span className="flex h-5 shrink-0 items-center">
+                        <TriangleAlert
+                          aria-hidden
+                          className="size-(--spacing-icon-sm)"
+                        />
+                      </span>
+                      <p className="font-medium">
+                        Site de cliente (produção): o envio cria um lead real,
+                        que a concessionária recebe como contato de verdade.
+                      </p>
+                    </div>
+                  )}
+                </Confirmation>
+              )}
             </li>
           ))}
         </ul>

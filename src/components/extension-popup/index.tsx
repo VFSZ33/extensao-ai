@@ -47,7 +47,7 @@ export function ExtensionPopup() {
     };
   }, []);
 
-  async function handleSubmitted() {
+  async function handleHistoryChanged() {
     setHistory(await loadHistory());
   }
 
@@ -77,9 +77,11 @@ export function ExtensionPopup() {
           integrações.
         </p>
       </header>
-      {activePage === "page" && <PageForms onSubmitted={handleSubmitted} />}
+      {activePage === "page" && (
+        <PageForms onSubmitted={handleHistoryChanged} />
+      )}
       {activePage === "panel" && <LeadIntegrations history={history} />}
-      <SubmissionHistory history={history} />
+      <SubmissionHistory history={history} onCleared={handleHistoryChanged} />
       <section
         aria-label="Verificação da extensão"
         className="flex flex-col gap-3 rounded-lg border border-border-subtle bg-surface-panel p-4"

@@ -1,5 +1,5 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import userEvent, { type UserEvent } from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { browser } from "wxt/browser";
 import { fakeBrowser } from "wxt/testing/fake-browser";
@@ -41,6 +41,12 @@ const formsWithSelect = [
 ];
 const tabs: { query: (query: object) => Promise<object[]> } = browser.tabs;
 
+async function confirmSubmission(user: UserEvent) {
+  await user.click(
+    await screen.findByRole("button", { name: "Confirmar envio" }),
+  );
+}
+
 function isSubmission(command: unknown): boolean {
   return (
     typeof command === "object" &&
@@ -50,11 +56,12 @@ function isSubmission(command: unknown): boolean {
   );
 }
 
-function mockPage(respond: (command: unknown) => unknown) {
+function mockPage(
+  respond: (command: unknown) => unknown,
+  url = "https://example.com/",
+) {
   let command: unknown;
-  vi.spyOn(tabs, "query").mockResolvedValue([
-    { id: 7, url: "https://example.com/" },
-  ]);
+  vi.spyOn(tabs, "query").mockResolvedValue([{ id: 7, url }]);
 
   return vi
     .spyOn(browser.scripting, "executeScript")
@@ -113,10 +120,12 @@ describe("Formulários da página", () => {
       name: "Enviar teste",
     });
     await user.click(submit);
+    await confirmSubmission(user);
     expect(
       await screen.findByText(/^Envio LT-\d{8}-\d{6}-001 disparado\./),
     ).toBeVisible();
     await user.click(submit);
+    await confirmSubmission(user);
     expect(
       await screen.findByText(/^Envio LT-\d{8}-\d{6}-002 disparado\./),
     ).toBeVisible();
@@ -151,7 +160,9 @@ describe("Formulários da página", () => {
     render(<PageForms onSubmitted={vi.fn()} />);
     const items = await screen.findAllByRole("listitem");
     expect(within(items[0]!).queryByRole("combobox")).not.toBeInTheDocument();
-    const select = within(items[1]!).getByRole("combobox", { name: "Unidade" });
+    const select = await within(items[1]!).findByRole("combobox", {
+      name: "Unidade",
+    });
     const submit = within(items[1]!).getByRole("button", {
       name: "Enviar teste",
     });
@@ -160,6 +171,7 @@ describe("Formulários da página", () => {
       "Formulário de seção Sem rótulo na página",
     );
     await user.click(submit);
+    await confirmSubmission(user);
     expect(
       await screen.findByText(/^Envio LT-\d{8}-\d{6}-001 disparado\./),
     ).toBeVisible();
@@ -172,12 +184,14 @@ describe("Formulários da página", () => {
     await user.click(screen.getByRole("option", { name: "Unidade Sul" }));
     expect(select).toHaveTextContent("Unidade Sul");
     await user.click(submit);
+    await confirmSubmission(user);
     expect(
       await screen.findByText(/^Envio LT-\d{8}-\d{6}-002 disparado\./),
     ).toBeVisible();
     await user.click(select);
     await user.click(await screen.findByRole("option", { name: "Nenhuma" }));
     await user.click(submit);
+    await confirmSubmission(user);
     expect(
       await screen.findByText(/^Envio LT-\d{8}-\d{6}-003 disparado\./),
     ).toBeVisible();
@@ -201,6 +215,7 @@ describe("Formulários da página", () => {
       (await screen.findAllByRole("listitem"))[0]!,
     ).getByRole("button", { name: "Enviar teste" });
     await user.click(submit);
+    await confirmSubmission(user);
     expect(
       await screen.findByText(
         "Campos do formulário que a extensão não preencheu: bestTime, city.",
@@ -209,6 +224,7 @@ describe("Formulários da página", () => {
     expect(screen.getByText(/^Envio LT-.+ disparado\./)).toBeVisible();
     unfilledFields = ["city"];
     await user.click(submit);
+    await confirmSubmission(user);
     expect(
       await screen.findByText(
         "Campo do formulário que a extensão não preencheu: city.",
@@ -216,6 +232,7 @@ describe("Formulários da página", () => {
     ).toBeVisible();
     unfilledFields = [];
     await user.click(submit);
+    await confirmSubmission(user);
     await waitFor(() =>
       expect(
         screen.queryByText(/que a extensão não preencheu/),
@@ -246,6 +263,7 @@ describe("Formulários da página", () => {
       name: "Enviar teste",
     });
     await user.click(submit);
+    await confirmSubmission(user);
     expect(
       await screen.findByText(
         'Campo "cpf" da definição não encontrado no formulário.',
@@ -253,6 +271,7 @@ describe("Formulários da página", () => {
     ).toBeVisible();
     await expect(readSubmissionHistory()).resolves.toEqual([]);
     await user.click(submit);
+    await confirmSubmission(user);
     expect(await screen.findByText(/^Envio LT-.+ disparado\./)).toBeVisible();
     expect(
       screen.queryByText(
@@ -276,6 +295,7 @@ describe("Formulários da página", () => {
     await user.click(
       within(items[0]!).getByRole("button", { name: "Enviar teste" }),
     );
+    await confirmSubmission(user);
     const sending = await within(items[0]!).findByRole("button", {
       name: "Enviando…",
     });
@@ -292,6 +312,107 @@ describe("Formulários da página", () => {
     expect(executeScript).toHaveBeenCalledTimes(calls);
     finish({ ok: true, result: { unfilledFields: [], values: {} } });
     expect(await screen.findByText(/^Envio LT-.+ disparado\./)).toBeVisible();
+  });
+
+  it("pede confirmação com o site e o formulário antes de enviar num site de cliente", async () => {
+    const executeScript = mockPage((command) =>
+      isSubmission(command)
+        ? { ok: true, result: { unfilledFields: [], values: {} } }
+        : { ok: true, result: forms },
+    );
+    const user = userEvent.setup();
+    render(<PageForms onSubmitted={vi.fn()} />);
+    const items = await screen.findAllByRole("listitem");
+    const submit = within(items[0]!).getByRole("button", {
+      name: "Enviar teste",
+    });
+    expect(submit).toHaveAttribute("aria-expanded", "false");
+    await user.click(submit);
+    const confirmation = within(items[0]!).getByRole("group", {
+      name: "Enviar um formulário real?",
+    });
+    expect(confirmation).toHaveFocus();
+    expect(confirmation).toHaveAccessibleDescription(
+      "Formulário de oferta (oferta - GEELY EX5 PRO - Enviar) será preenchido e enviado de verdade em example.com. Site de cliente (produção): o envio cria um lead real, que a concessionária recebe como contato de verdade.",
+    );
+    expect(submit).toHaveAttribute("aria-expanded", "true");
+    expect(
+      executeScript.mock.calls.some(
+        ([injection]) =>
+          "args" in injection && isSubmission(injection.args?.[1]),
+      ),
+    ).toBe(false);
+    await expect(readSubmissionHistory()).resolves.toEqual([]);
+    await user.click(
+      within(confirmation).getByRole("button", { name: "Confirmar envio" }),
+    );
+    expect(await screen.findByText(/^Envio LT-.+ disparado./)).toBeVisible();
+    expect(confirmation).not.toBeInTheDocument();
+    expect(submit).toHaveFocus();
+    await expect(readSubmissionHistory()).resolves.toHaveLength(1);
+  });
+
+  it("identifica o site de testes na confirmação", async () => {
+    mockPage(
+      () => ({ ok: true, result: forms }),
+      "https://loja.preview-v2.autodromo.com.br/ofertas",
+    );
+    const user = userEvent.setup();
+    render(<PageForms onSubmitted={vi.fn()} />);
+    const items = await screen.findAllByRole("listitem");
+    await user.click(
+      within(items[1]!).getByRole("button", { name: "Enviar teste" }),
+    );
+    expect(
+      within(items[1]!).getByRole("group", {
+        name: "Enviar um formulário real?",
+      }),
+    ).toHaveAccessibleDescription(
+      "Formulário de seção (sem rótulo na página) será preenchido e enviado de verdade em loja.preview-v2.autodromo.com.br. Site de testes (homologação): o lead vai para o painel do ambiente de testes.",
+    );
+    expect(screen.queryByText(/Site de cliente/)).not.toBeInTheDocument();
+  });
+
+  it("cancela a confirmação pelo botão ou pelo Esc, sem enviar, e devolve o foco", async () => {
+    const executeScript = mockPage(() => ({ ok: true, result: forms }));
+    const user = userEvent.setup();
+    render(<PageForms onSubmitted={vi.fn()} />);
+    const items = await screen.findAllByRole("listitem");
+    const submit = within(items[0]!).getByRole("button", {
+      name: "Enviar teste",
+    });
+    const calls = executeScript.mock.calls.length;
+    await user.click(submit);
+    await user.click(screen.getByRole("button", { name: "Cancelar" }));
+    expect(screen.queryByRole("group")).not.toBeInTheDocument();
+    expect(submit).toHaveFocus();
+    await user.click(submit);
+    await user.keyboard("{Tab}");
+    expect(
+      screen.getByRole("button", { name: "Confirmar envio" }),
+    ).toHaveFocus();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("group")).not.toBeInTheDocument();
+    expect(submit).toHaveFocus();
+    expect(executeScript).toHaveBeenCalledTimes(calls);
+    await expect(readSubmissionHistory()).resolves.toEqual([]);
+  });
+
+  it("mantém só um formulário em confirmação por vez", async () => {
+    mockPage(() => ({ ok: true, result: forms }));
+    const user = userEvent.setup();
+    render(<PageForms onSubmitted={vi.fn()} />);
+    const items = await screen.findAllByRole("listitem");
+    await user.click(
+      within(items[0]!).getByRole("button", { name: "Enviar teste" }),
+    );
+    await user.click(
+      within(items[1]!).getByRole("button", { name: "Enviar teste" }),
+    );
+    expect(screen.getAllByRole("group")).toHaveLength(1);
+    expect(within(items[1]!).getByRole("group")).toHaveFocus();
+    await user.click(screen.getByRole("button", { name: "Atualizar lista" }));
+    expect(screen.queryByRole("group")).not.toBeInTheDocument();
   });
 
   it("informa quando a página não tem formulário reconhecido e atualiza a lista", async () => {

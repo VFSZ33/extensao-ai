@@ -6,7 +6,16 @@ import {
   type LeadIntegrationReport,
 } from "@/lib/integration-status";
 import { parsePageResponse } from "@/lib/page-command";
-import { isPanelUrl, PANEL_REQUIRED_MESSAGE } from "@/lib/panel-session";
+import {
+  PANEL_QUERY_KEY,
+  type PanelQuery,
+  parsePanelQuery,
+} from "@/lib/panel-query";
+import {
+  isPanelUrl,
+  PANEL_ORIGIN,
+  PANEL_REQUIRED_MESSAGE,
+} from "@/lib/panel-session";
 
 export async function isPanelActive(): Promise<boolean> {
   try {
@@ -16,7 +25,15 @@ export async function isPanelActive(): Promise<boolean> {
   }
 }
 
-export async function verifyPanelLeads(): Promise<LeadIntegrationReport> {
+export async function verifyPanelLeads(
+  query: PanelQuery,
+): Promise<LeadIntegrationReport> {
+  const panelQuery = parsePanelQuery(query);
+
+  if (!panelQuery) {
+    throw new Error("Escolha uma quantidade válida e revise a busca.");
+  }
+
   const tab = await getActiveTab();
 
   if (!isPanelUrl(tab.url)) {
@@ -26,6 +43,12 @@ export async function verifyPanelLeads(): Promise<LeadIntegrationReport> {
   let result: unknown;
 
   try {
+    await browser.scripting.executeScript({
+      args: [PANEL_QUERY_KEY, panelQuery, PANEL_ORIGIN],
+      func: storePanelQuery,
+      target: { tabId: tab.id },
+      world: "ISOLATED",
+    });
     const [injection] = await browser.scripting.executeScript({
       files: ["/lead-integrations.js"],
       target: { tabId: tab.id },
@@ -49,4 +72,10 @@ export async function verifyPanelLeads(): Promise<LeadIntegrationReport> {
   }
 
   return response.result;
+}
+
+function storePanelQuery(key: string, query: PanelQuery, origin: string): void {
+  if (location.origin === origin) {
+    Reflect.set(globalThis, key, query);
+  }
 }

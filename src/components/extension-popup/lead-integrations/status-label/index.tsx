@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 
 import {
+  CircleAlert,
   CircleCheck,
   CircleDashed,
   CircleQuestionMark,
@@ -16,6 +17,7 @@ export type StatusLabelProps = { children: ReactNode; status: LeadStatus };
 const STATUS_ICONS = {
   error: CircleX,
   "no-events": CircleDashed,
+  "not-confirmed": CircleAlert,
   ok: CircleCheck,
   pending: Clock,
   unavailable: CircleQuestionMark,
@@ -33,6 +35,7 @@ export function StatusLabel({ children, status }: StatusLabelProps) {
             "size-(--spacing-icon-sm)",
             status === "error" && "text-feedback-error",
             status === "no-events" && "text-text-muted",
+            status === "not-confirmed" && "text-feedback-warning",
             status === "ok" && "text-feedback-success",
             status === "pending" && "text-feedback-warning",
             status === "unavailable" && "text-text-secondary",

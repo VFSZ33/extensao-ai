@@ -49,7 +49,7 @@ describe("Dados do lead de teste", () => {
       email: "lt-20261007-080509-012@example.com",
       message: "Lead de teste LT-20261007-080509-012.",
       name: "Teste LT-20261007-080509-012",
-      phone: expect.stringMatching(/^119[6-9]\d{7}$/),
+      phone: expect.stringMatching(/^209[6-9]\d{7}$/),
     });
   });
 
@@ -69,6 +69,15 @@ describe("Dados do lead de teste", () => {
       );
       expect(hasValidCpfCheckDigits(cpf)).toBe(true);
       expect(cpf).not.toMatch(/^(\d)\1{10}$/);
+    }
+  });
+
+  it("gera sempre celular com o DDD 20, que não existe no Brasil", () => {
+    for (let sequence = 1; sequence <= 500; sequence += 1) {
+      const { phone } = createLeadData(
+        createSubmissionId(new Date(2026, 9, 7, 8, 5, 9), sequence),
+      );
+      expect(phone).toMatch(/^209[6-9]\d{7}$/);
     }
   });
 

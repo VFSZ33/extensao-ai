@@ -89,7 +89,20 @@ export async function fillAndSubmitForm(
 
   const values = readFilledValues(fields, lead, selections);
   const emptyFields = listEmptyUnmappedFields(form, fields);
+  const requiredConsent = emptyFields.find(
+    ({ element }) =>
+      element.required &&
+      definition.consentSelectors.some((selector) => element.matches(selector)),
+  );
   const requiredField = emptyFields.find(({ element }) => element.required);
+
+  if (requiredConsent) {
+    throw new Error(
+      'O formulário exige o consentimento de marketing "' +
+        requiredConsent.name +
+        '". Por política, a extensão não marca consentimento, e o formulário não foi enviado.',
+    );
+  }
 
   if (requiredField) {
     throw new Error(

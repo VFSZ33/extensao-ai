@@ -13,17 +13,31 @@ export type SubmissionRecord = {
   values: FilledValues;
 };
 
+export const HISTORY_MAX_RECORDS = 100;
+export const HISTORY_RETENTION_DAYS = 30;
+
 const historyItem = storage.defineItem<unknown>("local:submissionHistory");
 const sequenceItem = storage.defineItem<unknown>("local:submissionSequence");
 
 export async function addSubmission(record: SubmissionRecord): Promise<void> {
-  await historyItem.setValue([record, ...(await readSubmissionHistory())]);
+  await historyItem.setValue(
+    retainSubmissions([record, ...parseHistory(await historyItem.getValue())]),
+  );
+}
+
+export async function clearSubmissionHistory(): Promise<void> {
+  await historyItem.removeValue();
 }
 
 export async function readSubmissionHistory(): Promise<SubmissionRecord[]> {
   const stored = await historyItem.getValue();
+  const history = retainSubmissions(parseHistory(stored));
 
-  return Array.isArray(stored) ? stored.filter(isSubmissionRecord) : [];
+  if (Array.isArray(stored) && stored.length !== history.length) {
+    await historyItem.setValue(history);
+  }
+
+  return history;
 }
 
 export async function takeSubmissionSequence(): Promise<number> {
@@ -54,4 +68,16 @@ function isSubmissionRecord(value: unknown): value is SubmissionRecord {
     !Number.isNaN(Date.parse(record.submittedAt)) &&
     isFilledValues(record.values)
   );
+}
+
+function parseHistory(stored: unknown): SubmissionRecord[] {
+  return Array.isArray(stored) ? stored.filter(isSubmissionRecord) : [];
+}
+
+function retainSubmissions(records: SubmissionRecord[]): SubmissionRecord[] {
+  const oldest = Date.now() - HISTORY_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+
+  return records
+    .filter(({ submittedAt }) => Date.parse(submittedAt) >= oldest)
+    .slice(0, HISTORY_MAX_RECORDS);
 }

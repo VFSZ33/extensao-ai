@@ -1,6 +1,7 @@
 import type { FormDefinition } from "@/lib/form-definition";
 
 export const autodromoSectionForm: FormDefinition = {
+  consentSelectors: ['input[name="marketingConsent[]"]'],
   fields: [
     {
       key: "contactPreference.email",
@@ -34,12 +35,6 @@ export const autodromoSectionForm: FormDefinition = {
       kind: "text",
       selector: 'input[name="email"]',
       source: "email",
-    },
-    {
-      key: "marketingConsent",
-      kind: "checkbox",
-      optional: true,
-      selector: 'input[name="marketingConsent[]"]',
     },
     {
       comparison: "exact",

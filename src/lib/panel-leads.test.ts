@@ -9,6 +9,15 @@ import { fakeBrowser } from "wxt/testing/fake-browser";
 
 import { isPanelActive, verifyPanelLeads } from "@/lib/panel-leads";
 
+type Injection = {
+  args?: unknown[];
+  files?: string[];
+  func?: (...args: never[]) => unknown;
+  target: object;
+  world?: string;
+};
+
+const QUERY = { limit: 10, search: "" } as const;
 const tabs: { query: (query: object) => Promise<object[]> } = browser.tabs;
 
 function mockPanelResult(result: unknown, url = PANEL_LEADS_URL) {
@@ -19,6 +28,10 @@ function mockPanelResult(result: unknown, url = PANEL_LEADS_URL) {
     .mockImplementation(async () => [
       { documentId: "document", frameId: 0, result },
     ]);
+}
+
+function readInjections(executeScript: { mock: { calls: unknown[][] } }) {
+  return executeScript.mock.calls.map(([injection]) => injection as Injection);
 }
 
 describe("Verificação dos leads na aba do painel", () => {
@@ -49,15 +62,51 @@ describe("Verificação dos leads na aba do painel", () => {
     await expect(isPanelActive()).resolves.toBe(false);
   });
 
-  it("injeta o script de leitura no mundo isolado da aba do painel", async () => {
+  it("entrega a consulta e injeta o script de leitura no mundo isolado da aba do painel", async () => {
     const executeScript = mockPanelResult({ ok: true, result: panelReport });
-    await expect(verifyPanelLeads()).resolves.toEqual(panelReport);
-    expect(executeScript).toHaveBeenCalledTimes(1);
-    expect(executeScript).toHaveBeenCalledWith({
+    await expect(
+      verifyPanelLeads({ limit: 5, search: "  LT-20261008  " }),
+    ).resolves.toEqual(panelReport);
+    const [store, read] = readInjections(executeScript);
+    expect(executeScript).toHaveBeenCalledTimes(2);
+    expect(store).toMatchObject({
+      args: [
+        "leadIntegrationTesterPanelQuery",
+        { limit: 5, search: "LT-20261008" },
+        "https://admin.autodromo.com.br",
+      ],
+      target: { tabId: 7 },
+      world: "ISOLATED",
+    });
+    expect(read).toEqual({
       files: ["/lead-integrations.js"],
       target: { tabId: 7 },
       world: "ISOLATED",
     });
+  });
+
+  it("guarda a consulta só na origem do painel", async () => {
+    const executeScript = mockPanelResult({ ok: true, result: panelReport });
+    await verifyPanelLeads(QUERY);
+    const [store] = readInjections(executeScript);
+    const key = "leadIntegrationTesterPanelQuery";
+    const storeQuery = store?.func as unknown as (...args: unknown[]) => void;
+    storeQuery(key, QUERY, location.origin);
+    expect(Reflect.get(globalThis, key)).toEqual(QUERY);
+    Reflect.deleteProperty(globalThis, key);
+    storeQuery(key, QUERY, "https://admin.autodromo.com.br");
+    expect(Reflect.has(globalThis, key)).toBe(false);
+  });
+
+  it.each([
+    { limit: 7, search: "" },
+    { limit: 10, search: "a".repeat(101) },
+  ])("não acessa a aba com a consulta inválida %j", async (query) => {
+    const executeScript = mockPanelResult({ ok: true, result: panelReport });
+    await expect(verifyPanelLeads(query as typeof QUERY)).rejects.toThrow(
+      "Escolha uma quantidade válida e revise a busca.",
+    );
+    expect(executeScript).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -71,7 +120,7 @@ describe("Verificação dos leads na aba do painel", () => {
       { ok: true, result: panelReport },
       url,
     );
-    await expect(verifyPanelLeads()).rejects.toThrow(
+    await expect(verifyPanelLeads(QUERY)).rejects.toThrow(
       "Abra o painel administrativo na aba ativa para verificar as integrações.",
     );
     expect(executeScript).not.toHaveBeenCalled();
@@ -79,7 +128,7 @@ describe("Verificação dos leads na aba do painel", () => {
 
   it("informa quando não há aba ativa identificável", async () => {
     vi.spyOn(tabs, "query").mockResolvedValue([{}]);
-    await expect(verifyPanelLeads()).rejects.toThrow(
+    await expect(verifyPanelLeads(QUERY)).rejects.toThrow(
       "Não foi possível identificar a aba ativa.",
     );
   });
@@ -91,7 +140,7 @@ describe("Verificação dos leads na aba do painel", () => {
     vi.spyOn(browser.scripting, "executeScript").mockRejectedValue(
       new Error("Cannot access contents of the page"),
     );
-    await expect(verifyPanelLeads()).rejects.toThrow(
+    await expect(verifyPanelLeads(QUERY)).rejects.toThrow(
       "Não foi possível acessar o painel nesta aba. Clique no ícone da extensão com o painel aberto e tente de novo.",
     );
   });
@@ -102,7 +151,7 @@ describe("Verificação dos leads na aba do painel", () => {
         "A sessão do painel expirou. Recarregue o painel ou entre de novo.",
       ok: false,
     });
-    await expect(verifyPanelLeads()).rejects.toThrow(
+    await expect(verifyPanelLeads(QUERY)).rejects.toThrow(
       "A sessão do painel expirou. Recarregue o painel ou entre de novo.",
     );
   });
@@ -113,15 +162,19 @@ describe("Verificação dos leads na aba do painel", () => {
     {},
     { ok: true },
     { ok: true, result: {} },
-    { ok: true, result: { leads: [{ id: "lead" }] } },
+    { ok: true, result: { leads: [] } },
+    { ok: true, result: { leads: [{ id: "lead" }], missingLeads: 0 } },
     {
       ok: true,
-      result: { leads: [{ ...panelReport.leads[0], status: "enviado" }] },
+      result: {
+        leads: [{ ...panelReport.leads[0], status: "enviado" }],
+        missingLeads: 0,
+      },
     },
     { ok: false },
   ])("rejeita a resposta inválida %j do script", async (response) => {
     mockPanelResult(response);
-    await expect(verifyPanelLeads()).rejects.toThrow(
+    await expect(verifyPanelLeads(QUERY)).rejects.toThrow(
       "O painel retornou uma resposta inválida.",
     );
   });
