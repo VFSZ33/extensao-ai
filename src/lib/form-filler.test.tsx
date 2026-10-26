@@ -23,7 +23,6 @@ type ControlledFormProps = {
 };
 
 const definition: FormDefinition = {
-  consentSelectors: [],
   fields: [
     {
       comparison: "exact",

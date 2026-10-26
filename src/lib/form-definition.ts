@@ -1,7 +1,6 @@
 import type { LeadData } from "@/lib/lead-data";
 
 export type FormDefinition = {
-  consentSelectors: string[];
   fields: FormFieldDefinition[];
   id: string;
   matches: (form: HTMLFormElement) => boolean;

@@ -138,8 +138,9 @@ describe("Definições de formulário", () => {
     ).resolves.toEqual({
       ok: true,
       result: {
-        unfilledFields: ["dataPermissions"],
+        unfilledFields: [],
         values: {
+          dataPermissions: true,
           email: lead.email,
           mailing: true,
           name: lead.name,
@@ -150,6 +151,7 @@ describe("Definições de formulário", () => {
       },
     });
     expect(submission.current).toEqual({
+      dataPermissions: "on",
       email: lead.email,
       mailing: "on",
       name: lead.name,
@@ -196,9 +198,10 @@ describe("Definições de formulário", () => {
     ).resolves.toEqual({
       ok: true,
       result: {
-        unfilledFields: ["dataPermissions"],
+        unfilledFields: [],
         values: {
           cpf: lead.cpf,
+          dataPermissions: true,
           email: lead.email,
           mailing: true,
           name: lead.name,
@@ -210,6 +213,7 @@ describe("Definições de formulário", () => {
     });
     expect(submission.current).toEqual({
       cpf: lead.cpf,
+      dataPermissions: "on",
       email: lead.email,
       mailing: "on",
       name: lead.name,
@@ -217,59 +221,6 @@ describe("Definições de formulário", () => {
       phoning: "on",
       whatsapping: "on",
     });
-  });
-
-  it("recusa o envio quando o formulário exige o consentimento de marketing", async () => {
-    const consent = document.querySelector(
-      'form[data-fixture="offer"] input[name="dataPermissions"]',
-    );
-
-    if (!(consent instanceof HTMLInputElement)) {
-      throw new Error("Consentimento ausente na fixture.");
-    }
-
-    consent.required = true;
-    const submission = captureSubmission();
-    await expect(
-      runPageCommand(
-        {
-          definitionId: "autodromo-offer",
-          index: 0,
-          lead,
-          type: "submit-form",
-        },
-        document,
-        formDefinitions,
-      ),
-    ).resolves.toEqual({
-      error:
-        'O formulário exige o consentimento de marketing "dataPermissions". Por política, a extensão não marca consentimento, e o formulário não foi enviado.',
-      ok: false,
-    });
-    expect(consent).not.toBeChecked();
-    expect(submission.current).toBeUndefined();
-  });
-
-  it("não mapeia as caixas de consentimento de nenhuma definição", () => {
-    openContactModal();
-
-    for (const definition of formDefinitions) {
-      const forms = Array.from(document.forms).filter(definition.matches);
-      const consents = forms.flatMap((form) =>
-        definition.consentSelectors.flatMap((selector) =>
-          Array.from(form.querySelectorAll(selector)),
-        ),
-      );
-      const mapped = forms.flatMap((form) =>
-        definition.fields.flatMap(({ selector }) =>
-          Array.from(form.querySelectorAll(selector)),
-        ),
-      );
-      expect(consents.length).toBeGreaterThan(0);
-      expect(consents.filter((consent) => mapped.includes(consent))).toEqual(
-        [],
-      );
-    }
   });
 
   it("preenche a variação de oferta sem os campos opcionais", async () => {
@@ -318,13 +269,14 @@ describe("Definições de formulário", () => {
     ).resolves.toEqual({
       ok: true,
       result: {
-        unfilledFields: ["marketingConsent[]"],
+        unfilledFields: [],
         values: {
           "contactPreference.email": true,
           "contactPreference.telefone": true,
           "contactPreference.whatsapp": true,
           cpf: lead.cpf,
           email: lead.email,
+          marketingConsent: true,
           name: lead.name,
           phone: lead.phone,
         },
@@ -334,11 +286,11 @@ describe("Definições de formulário", () => {
       "contactPreference[]": ["email", "whatsapp", "telefone"],
       cpf: lead.cpf,
       email: lead.email,
+      "marketingConsent[]": ["true"],
       name: lead.name,
       phone: lead.phone,
       siteId: "site-fixture",
     });
-    expect(submission.current).not.toHaveProperty("marketingConsent[]");
   });
 
   it("preenche a caixa de mensagem e a opção escolhida no seletor", async () => {
@@ -358,12 +310,13 @@ describe("Definições de formulário", () => {
     ).resolves.toEqual({
       ok: true,
       result: {
-        unfilledFields: ["bestTime", "marketingConsent[]"],
+        unfilledFields: ["bestTime"],
         values: {
           "contactPreference.email": true,
           "contactPreference.telefone": true,
           "contactPreference.whatsapp": true,
           email: lead.email,
+          marketingConsent: true,
           message: lead.message,
           name: lead.name,
           phone: lead.phone,

@@ -19,7 +19,7 @@ As mudanças de cada entrega do Scanner de Leads, da mais recente para a mais an
 
 - Confirmação na própria interface antes de cada envio, com o formulário, o endereço do site e o ambiente; Esc ou Cancelar desistem sem tocar na página, e só um formulário fica em confirmação por vez.
 - Site de testes (hosts .preview-v2.autodromo.com.br em https) diferenciado de site de cliente, que recebe aviso em destaque de que o envio cria um lead real recebido pela concessionária.
-- As caixas de consentimento de marketing (marketingConsent[] no formulário de seção, dataPermissions na oferta e no modal de contato) deixaram de ser marcadas. Elas aparecem no aviso de campos não preenchidos e, se a página as exigir, o envio é bloqueado com mensagem própria.
+- As caixas de consentimento (marketingConsent[] no formulário de seção, dataPermissions na oferta e no modal de contato) continuam marcadas em todo envio, como as de preferência de contato, porque os sites exigem a autorização para enviar: o formulário de seção recusa o envio sem ela por validação própria, mesmo sem marcá-la como obrigatória.
 - Telefone de teste com DDD 20, que não existe no Brasil, no formato de celular; o CPF continua com dígitos verificadores válidos e todos os valores continuam derivados do identificador.
 
 ### Histórico de envios

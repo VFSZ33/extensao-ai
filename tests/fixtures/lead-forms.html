@@ -441,7 +441,8 @@
           Boolean(data.name.trim()) &&
           /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email) &&
           /^\(\d{2}\) \d{4,5}-\d{4}$/.test(data.phone) &&
-          ("whatsapping" in data || "phoning" in data || "mailing" in data),
+          ("whatsapping" in data || "phoning" in data || "mailing" in data) &&
+          data.dataPermissions === "on",
         offer: (data, form) =>
           Boolean(data.name) &&
           /^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/.test(data.email) &&
@@ -453,12 +454,14 @@
           Boolean(data.name.trim()) &&
           /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email) &&
           /^\d{10,11}$/.test(data.phone.replace(/\D/g, "")) &&
-          hasValidCpf(data.cpf),
+          hasValidCpf(data.cpf) &&
+          data["marketingConsent[]"]?.includes("true") === true,
         stock: (data) =>
           Boolean(data.name.trim()) &&
           /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email) &&
           /^\d{10,11}$/.test(data.phone.replace(/\D/g, "")) &&
-          data.message.startsWith("Lead de teste "),
+          data.message.startsWith("Lead de teste ") &&
+          data["marketingConsent[]"]?.includes("true") === true,
       };
 
       document.addEventListener("submit", (event) => {

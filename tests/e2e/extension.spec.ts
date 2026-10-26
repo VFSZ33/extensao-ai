@@ -350,14 +350,12 @@ test("envia formulários da aba ativa pelo popup e mantém o histórico", async 
       .click();
     await confirmSubmission(popup.page);
     await expect(forms).toContainText(/Envio LT-\d{8}-\d{6}-001 disparado\./);
-    await expect(forms).toContainText(
-      "Campo do formulário que a extensão não preencheu: marketingConsent[].",
-    );
+    await expect(forms).not.toContainText("que a extensão não preencheu");
     await expect(
       page
         .locator('form[data-fixture="section"]')
         .locator('input[name="marketingConsent[]"]'),
-    ).not.toBeChecked();
+    ).toBeChecked();
     const firstId =
       /LT-\d{8}-\d{6}-001/.exec(await forms.innerText())?.[0] ?? "";
     await expect(submissions.getByRole("listitem")).toHaveCount(1);
@@ -371,6 +369,7 @@ test("envia formulários da aba ativa pelo popup e mantém o histórico", async 
         "contactPreference[]": ["email", "whatsapp", "telefone"],
         cpf: expect.stringMatching(/^\d{3}\.\d{3}\.\d{3}-\d{2}$/),
         email: firstId.toLowerCase() + "@example.com",
+        "marketingConsent[]": ["true"],
         name: "Teste " + firstId,
         origin_url: "",
         phone: expect.stringMatching(/^\(20\) 9\d{4}-\d{4}$/),
@@ -488,12 +487,10 @@ test("lista o formulário do modal só depois de aberto na página e o envia", a
     await form.getByRole("button", { name: "Enviar teste" }).click();
     await confirmSubmission(popup.page);
     await expect(forms).toContainText(/Envio LT-\d{8}-\d{6}-001 disparado\./);
-    await expect(forms).toContainText(
-      "Campo do formulário que a extensão não preencheu: dataPermissions.",
-    );
+    await expect(forms).not.toContainText("que a extensão não preencheu");
     await expect(
       page.locator('[data-contact-modal] input[name="dataPermissions"]'),
-    ).not.toBeChecked();
+    ).toBeChecked();
     const firstId =
       /LT-\d{8}-\d{6}-001/.exec(await forms.innerText())?.[0] ?? "";
     await expect(submissions.getByRole("listitem")).toHaveCount(1);
@@ -502,6 +499,7 @@ test("lista o formulário do modal só depois de aberto na página e o envia", a
     );
     expect(first).toEqual({
       data: {
+        dataPermissions: "on",
         email: firstId.toLowerCase() + "@example.com",
         mailing: "on",
         name: "Teste " + firstId,
@@ -564,7 +562,7 @@ test("preenche caixa de texto e seletor, com a opção escolhida no popup", asyn
     await confirmSubmission(popup.page);
     await expect(forms).toContainText(/Envio LT-\d{8}-\d{6}-001 disparado\./);
     await expect(forms).toContainText(
-      "Campos do formulário que a extensão não preencheu: bestTime, marketingConsent[].",
+      "Campo do formulário que a extensão não preencheu: bestTime.",
     );
     const firstId =
       /LT-\d{8}-\d{6}-001/.exec(await forms.innerText())?.[0] ?? "";
@@ -581,6 +579,7 @@ test("preenche caixa de texto e seletor, com a opção escolhida no popup", asyn
         "contactPreference[]": ["email", "whatsapp", "telefone"],
         content_entry_id: "entry-fixture",
         email: firstId.toLowerCase() + "@example.com",
+        "marketingConsent[]": ["true"],
         message: "Lead de teste " + firstId + ".",
         name: "Teste " + firstId,
         origin_url: "",

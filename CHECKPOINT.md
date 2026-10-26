@@ -31,7 +31,7 @@ Tornar o Scanner de Leads uma ferramenta interna confiável e segura para o Supo
 ### Envios de teste e histórico
 
 - **Telefone:** celular com DDD 20, que não existe no Brasil, ainda derivado do identificador. O CPF continua com dígitos verificadores válidos.
-- **Consentimento de marketing:** nunca é marcado. Se a página o exigir, o envio é bloqueado com mensagem.
+- **Consentimento:** as três caixas conhecidas (`marketingConsent[]` e `dataPermissions`) são marcadas em todo envio, por decisão do humano, porque os sites exigem a autorização para enviar.
 - **Confirmação:** na própria interface antes de cada envio, com o site e o formulário, e aviso mais forte fora do site de testes (`*.preview-v2.autodromo.com.br`).
 - **Histórico local:** no máximo 100 envios e retenção de 30 dias; botão "Limpar histórico" com confirmação; a sequência dos identificadores é mantida.
 
@@ -71,8 +71,7 @@ Tornar o Scanner de Leads uma ferramenta interna confiável e segura para o Supo
    - se a janela de 10 min basta para a fila de envio;
    - se `contact.updatedAt` muda em edições do contato.
 3. **Nenhum formulário foi enviado nesta branch.** Está pendente confirmar:
-   - se os formulários e as integrações aceitam o DDD 20 (a máscara do site de testes aceitou);
-   - como cada site se comporta sem o consentimento de marketing marcado.
+   - se os formulários e as integrações aceitam o DDD 20 (a máscara do site de testes aceitou).
 4. **Testes instáveis corrigidos:** o teste do Select estourava o tempo na suíte completa (resolvido limitando os processos em paralelo), e um teste do seletor de formulários tinha uma corrida (o nome acessível do Base UI chega um render depois; resolvido esperando o elemento). O teste e2e de limpeza do histórico falhou uma vez em rodada anterior e passou ao repetir.
 5. **Navegador:** a consulta usa `AbortSignal.any`, que exige Chrome ou Edge 116 ou mais novo.
 
