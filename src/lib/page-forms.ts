@@ -1,9 +1,10 @@
 import { browser } from "wxt/browser";
 
-import { getActiveTab } from "@/lib/active-tab";
+import { type ActiveTab, getActiveTab } from "@/lib/active-tab";
 import { createLeadData, createSubmissionId } from "@/lib/lead-data";
 import {
   isRecognizedForms,
+  isSelectOption,
   isSubmissionResult,
   PAGE_COMMAND_KEY,
   type PageCommand,
@@ -17,6 +18,7 @@ import {
 } from "@/lib/submission-history";
 
 export type PageForms = {
+  documentId?: string;
   forms: RecognizedForm[];
   pageUrl: string;
   tabId: number;
@@ -27,24 +29,74 @@ export type TestLeadSubmission = {
   unfilledFields: string[];
 };
 
-export async function detectPageForms(): Promise<PageForms> {
-  const tab = await getActiveTab();
+type PageResult<Result> = { documentId?: string; result: Result };
+
+export async function detectPageForms(tab?: ActiveTab): Promise<PageForms> {
+  const page = tab ?? (await getActiveTab());
+  const { documentId, result } = await runInPage(
+    page.id,
+    { type: "detect-forms" },
+    isRecognizedForms,
+  );
 
   return {
-    forms: await runInPage(tab.id, { type: "detect-forms" }, isRecognizedForms),
-    pageUrl: tab.url,
-    tabId: tab.id,
+    ...(documentId !== undefined && { documentId }),
+    forms: result,
+    pageUrl: page.url,
+    tabId: page.id,
   };
+}
+
+export async function findUnchangedForm(
+  page: PageForms,
+  form: RecognizedForm,
+): Promise<RecognizedForm | undefined> {
+  if (page.documentId === undefined) {
+    return undefined;
+  }
+
+  try {
+    const tab = await browser.tabs.get(page.tabId);
+
+    if (!tab.active || tab.url !== page.pageUrl) {
+      return undefined;
+    }
+
+    const { result } = await runInPage(
+      page.tabId,
+      { type: "detect-forms" },
+      isRecognizedForms,
+      page.documentId,
+    );
+
+    return result.find((candidate) => isSameForm(candidate, form));
+  } catch {
+    return undefined;
+  }
+}
+
+export function isSameForm(
+  candidate: RecognizedForm,
+  form: RecognizedForm,
+): boolean {
+  return (
+    candidate.definitionId === form.definitionId &&
+    candidate.index === form.index &&
+    candidate.label === form.label
+  );
 }
 
 export async function submitTestLead(
   page: Pick<PageForms, "pageUrl" | "tabId">,
   form: RecognizedForm,
   selections: Record<string, string> = {},
+  documentId?: string,
 ): Promise<TestLeadSubmission> {
   const submittedAt = new Date();
   const id = createSubmissionId(submittedAt, await takeSubmissionSequence());
-  const { unfilledFields, values } = await runInPage(
+  const {
+    result: { unfilledFields, values },
+  } = await runInPage(
     page.tabId,
     {
       definitionId: form.definitionId,
@@ -54,7 +106,10 @@ export async function submitTestLead(
       type: "submit-form",
     },
     isSubmissionResult,
+    documentId,
   );
+  const unitSelect = form.selects.find(({ unit }) => unit);
+  const unit = unitSelect && values[unitSelect.key];
   const record: SubmissionRecord = {
     definitionId: form.definitionId,
     definitionName: form.definitionName,
@@ -62,6 +117,7 @@ export async function submitTestLead(
     id,
     pageUrl: page.pageUrl,
     submittedAt: submittedAt.toISOString(),
+    ...(isSelectOption(unit) && unit.value !== "" && { unit }),
     values,
   };
 
@@ -80,27 +136,29 @@ async function runInPage<Result>(
   tabId: number,
   command: PageCommand,
   isResult: (result: unknown) => result is Result,
-): Promise<Result> {
-  let result: unknown;
+  documentId?: string,
+): Promise<PageResult<Result>> {
+  const target =
+    documentId === undefined ? { tabId } : { documentIds: [documentId], tabId };
+  let injected: { documentId?: string; result?: unknown } | undefined;
 
   try {
     await browser.scripting.executeScript({
       args: [PAGE_COMMAND_KEY, command],
       func: storePageCommand,
-      target: { tabId },
+      target,
     });
-    const [injection] = await browser.scripting.executeScript({
+    [injected] = await browser.scripting.executeScript({
       files: ["/lead-forms.js"],
-      target: { tabId },
+      target,
     });
-    result = injection?.result;
   } catch {
     throw new Error(
       "Não foi possível acessar esta página. Abra uma página web comum e clique no ícone da extensão para tentar de novo.",
     );
   }
 
-  const response = parsePageResponse(result, isResult);
+  const response = parsePageResponse(injected?.result, isResult);
 
   if (!response) {
     throw new Error("A página retornou uma resposta inválida.");
@@ -110,7 +168,12 @@ async function runInPage<Result>(
     throw new Error(response.error);
   }
 
-  return response.result;
+  return {
+    ...(typeof injected?.documentId === "string" && {
+      documentId: injected.documentId,
+    }),
+    result: response.result,
+  };
 }
 
 function storePageCommand(key: string, command: PageCommand): void {

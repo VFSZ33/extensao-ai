@@ -4,7 +4,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { browser } from "wxt/browser";
 import { fakeBrowser } from "wxt/testing/fake-browser";
 
+import type { SubmissionRecord } from "@/lib/submission-history";
+import type { SubmissionQueueOptions } from "@/lib/submission-queue";
+
 import { PageForms } from "@/components/extension-popup/page-forms";
+import { isRecord } from "@/lib/is-record";
 import { readSubmissionHistory } from "@/lib/submission-history";
 
 const forms = [
@@ -39,7 +43,41 @@ const formsWithSelect = [
     ],
   },
 ];
-const tabs: { query: (query: object) => Promise<object[]> } = browser.tabs;
+const tabs: {
+  get: (tabId: number) => Promise<object>;
+  query: (query: object) => Promise<object[]>;
+} = browser.tabs;
+const units = [
+  { label: "Unidade Leste", value: "east" },
+  { label: "Unidade Norte", value: "north" },
+  { label: "Unidade Sul", value: "south" },
+];
+const formsWithUnit = [
+  forms[0],
+  {
+    ...forms[1],
+    label: "CRETA 1.0 TGDI FLEX COMFORT - Enviar",
+    selects: [
+      {
+        key: "bestTime",
+        label: "Melhor horário",
+        options: [{ label: "Manhã", value: "morning" }],
+      },
+      { key: "unit", label: "Unidade", options: units, unit: true },
+    ],
+  },
+];
+
+vi.mock("@/lib/submission-queue", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/lib/submission-queue")>();
+
+  return {
+    ...actual,
+    runSubmissionQueue: (options: SubmissionQueueOptions) =>
+      actual.runSubmissionQueue({ ...options, interval: 0 }),
+  };
+});
 
 async function confirmSubmission(user: UserEvent) {
   await user.click(
@@ -444,5 +482,379 @@ describe("Formulários da página", () => {
       ),
     ).toBeVisible();
     expect(screen.queryByRole("listitem")).not.toBeInTheDocument();
+  });
+});
+
+describe("Envio para várias unidades", () => {
+  beforeEach(() => {
+    fakeBrowser.reset();
+  });
+
+  function mockUnitPage(
+    submit: (unit: string, submitted: number) => unknown = (unit) =>
+      respondWithUnit(unit),
+  ) {
+    const sent: unknown[] = [];
+    const tabsGet = vi.spyOn(tabs, "get").mockResolvedValue({
+      active: true,
+      id: 7,
+      url: "https://example.com/",
+    });
+    const executeScript = mockPage((command) => {
+      if (!isSubmission(command)) {
+        return { ok: true, result: formsWithUnit };
+      }
+
+      sent.push(command);
+      const selections = isRecord(command) ? command.selections : undefined;
+      const unit = isRecord(selections) ? selections.unit : undefined;
+
+      return submit(typeof unit === "string" ? unit : "", sent.length);
+    });
+
+    return { executeScript, sent, tabsGet };
+  }
+
+  function respondWithUnit(value: string, unfilledFields: string[] = []) {
+    return {
+      ok: true,
+      result: {
+        unfilledFields,
+        values: {
+          unit: units.find((unit) => unit.value === value) ?? {
+            label: "Selecione a unidade",
+            value: "",
+          },
+        },
+      },
+    };
+  }
+
+  async function startQueue(user: UserEvent) {
+    const item = (await screen.findAllByRole("listitem"))[1]!;
+    await user.click(
+      within(item).getByRole("switch", { name: "Enviar para várias unidades" }),
+    );
+    await user.click(within(item).getByRole("checkbox", { name: "Todas" }));
+    await user.click(
+      within(item).getByRole("button", { name: "Enviar para 3 unidades" }),
+    );
+
+    return item;
+  }
+
+  it("oferece várias unidades só no seletor marcado como unidade e volta ao envio individual", async () => {
+    mockPage((command) =>
+      isSubmission(command)
+        ? { ok: true, result: { unfilledFields: [], values: {} } }
+        : { ok: true, result: [...formsWithSelect, formsWithUnit[1]] },
+    );
+    const user = userEvent.setup();
+    render(<PageForms onSubmitted={vi.fn()} />);
+    const items = await screen.findAllByRole("listitem");
+    expect(within(items[1]!).queryByRole("switch")).not.toBeInTheDocument();
+    const item = items[2]!;
+    await user.click(
+      within(item).getByRole("switch", { name: "Enviar para várias unidades" }),
+    );
+    expect(
+      within(item).queryByRole("combobox", { name: "Unidade" }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(item).getByRole("combobox", { name: "Melhor horário" }),
+    ).toBeVisible();
+    const picker = within(item).getByRole("group", { name: "Unidade" });
+    expect(within(picker).getAllByRole("checkbox")).toHaveLength(4);
+    expect(
+      within(item).getByRole("button", { name: "Enviar para 0 unidades" }),
+    ).toBeDisabled();
+    await user.click(
+      within(picker).getByRole("checkbox", { name: "Unidade Norte" }),
+    );
+    expect(
+      within(item).getByRole("button", { name: "Enviar para 1 unidade" }),
+    ).toBeEnabled();
+    expect(
+      within(picker).getByRole("checkbox", { name: "Todas" }),
+    ).toHaveAttribute("aria-checked", "mixed");
+    await user.click(within(picker).getByRole("checkbox", { name: "Todas" }));
+    expect(
+      within(item).getByRole("button", { name: "Enviar para 3 unidades" }),
+    ).toBeEnabled();
+    await user.click(
+      within(item).getByRole("switch", { name: "Enviar para várias unidades" }),
+    );
+    expect(
+      within(item).getByRole("combobox", { name: "Unidade" }),
+    ).toHaveTextContent("Nenhuma");
+    expect(
+      within(item).getByRole("button", { name: "Enviar teste" }),
+    ).toBeEnabled();
+  });
+
+  it("confirma uma vez e envia uma unidade por vez, cada uma com identificador e registro próprios", async () => {
+    const { sent } = mockUnitPage();
+    const onSubmitted = vi.fn<(record?: SubmissionRecord) => void>();
+    const user = userEvent.setup();
+    render(<PageForms onSubmitted={onSubmitted} />);
+    const item = (await screen.findAllByRole("listitem"))[1]!;
+    await user.click(
+      within(item).getByRole("combobox", { name: "Melhor horário" }),
+    );
+    await user.click(await screen.findByRole("option", { name: "Manhã" }));
+    await startQueue(user);
+    const confirmation = within(item).getByRole("group", {
+      name: "Enviar 3 formulários reais?",
+    });
+    expect(confirmation).toHaveFocus();
+    expect(confirmation).toHaveAccessibleDescription(
+      "Formulário de seção (CRETA 1.0 TGDI FLEX COMFORT - Enviar) será preenchido e enviado de verdade em example.com, uma vez para cada unidade, um envio de cada vez: Unidade Leste, Unidade Norte, Unidade Sul. A fila para se a página mudar ou um envio falhar, e pode ser cancelada entre um envio e outro. Site de cliente (produção): o envio cria um lead real, que a concessionária recebe como contato de verdade.",
+    );
+    expect(sent).toHaveLength(0);
+    await user.click(
+      within(confirmation).getByRole("button", { name: "Confirmar 3 envios" }),
+    );
+    const queue = screen.getByRole("group", { name: "Fila de envios" });
+    expect(
+      await within(queue).findByText(
+        "Fila concluída: 3 de 3 envios disparados. Confira os leads no painel com os dados do histórico.",
+      ),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole("group", { name: /^Enviar/ }),
+    ).not.toBeInTheDocument();
+    expect(sent).toEqual(
+      ["east", "north", "south"].map((unit) =>
+        expect.objectContaining({
+          index: 2,
+          selections: { bestTime: "morning", unit },
+        }),
+      ),
+    );
+    const ids = onSubmitted.mock.calls.map(([record]) => record?.id);
+    expect(ids).toEqual([
+      expect.stringMatching(/^LT-\d{8}-\d{6}-001$/),
+      expect.stringMatching(/^LT-\d{8}-\d{6}-002$/),
+      expect.stringMatching(/^LT-\d{8}-\d{6}-003$/),
+    ]);
+    expect(
+      within(within(queue).getByRole("list", { name: "Unidades da fila" }))
+        .getAllByRole("listitem")
+        .map((unit) => unit.textContent),
+    ).toEqual([
+      "Unidade Leste: envio " + String(ids[0]) + " disparado.",
+      "Unidade Norte: envio " + String(ids[1]) + " disparado.",
+      "Unidade Sul: envio " + String(ids[2]) + " disparado.",
+    ]);
+    const history = await readSubmissionHistory();
+    expect(history.map(({ id, unit }) => [id, unit?.label])).toEqual([
+      [ids[2], "Unidade Sul"],
+      [ids[1], "Unidade Norte"],
+      [ids[0], "Unidade Leste"],
+    ]);
+    expect(
+      within(queue).queryByRole("button", { name: "Cancelar fila" }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(item).getByRole("button", { name: "Enviar para 3 unidades" }),
+    ).toBeEnabled();
+  });
+
+  it("mostra o progresso, bloqueia outros envios e cancela a fila depois do envio em andamento", async () => {
+    const finishes: (() => void)[] = [];
+    const { executeScript, sent } = mockUnitPage(
+      (unit) =>
+        new Promise((resolve) => {
+          finishes.push(() => resolve(respondWithUnit(unit)));
+        }),
+    );
+    const onSubmitted = vi.fn();
+    const user = userEvent.setup();
+    render(<PageForms onSubmitted={onSubmitted} />);
+    const item = await startQueue(user);
+    await user.click(
+      screen.getByRole("button", { name: "Confirmar 3 envios" }),
+    );
+    const sending = await within(item).findByRole("button", {
+      name: "Enviando 1 de 3…",
+    });
+    const queue = screen.getByRole("group", { name: "Fila de envios" });
+    expect(
+      await within(queue).findByText("Enviando 1 de 3: Unidade Leste…"),
+    ).toBeVisible();
+    expect(sending).toHaveFocus();
+    expect(
+      within(item).getByRole("switch", { name: "Enviar para várias unidades" }),
+    ).toHaveAttribute("aria-disabled", "true");
+    expect(
+      within(screen.getAllByRole("listitem")[0]!).getByRole("button", {
+        name: "Enviar teste",
+      }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Atualizar lista" }),
+    ).toBeDisabled();
+    const calls = executeScript.mock.calls.length;
+    await user.click(sending);
+    expect(executeScript).toHaveBeenCalledTimes(calls);
+    expect(
+      screen.queryByRole("group", { name: /^Enviar/ }),
+    ).not.toBeInTheDocument();
+    await user.click(
+      within(queue).getByRole("button", { name: "Cancelar fila" }),
+    );
+    expect(
+      within(queue).getByText(
+        "Cancelando: a fila para depois do envio em andamento.",
+      ),
+    ).toBeVisible();
+    finishes[0]?.();
+    expect(
+      await within(queue).findByText(
+        "Fila cancelada: 1 de 3 envios disparados.",
+      ),
+    ).toBeVisible();
+    expect(
+      within(queue).getByText(
+        "Unidades pendentes, sem envio: Unidade Norte, Unidade Sul.",
+      ),
+    ).toBeVisible();
+    expect(sent).toHaveLength(1);
+    expect(onSubmitted).toHaveBeenCalledTimes(1);
+    await expect(readSubmissionHistory()).resolves.toHaveLength(1);
+    expect(
+      screen.getByRole("button", { name: "Atualizar lista" }),
+    ).toBeEnabled();
+  });
+
+  it("para quando a página muda depois de um envio, mostra as pendentes e as marca ao atualizar a lista", async () => {
+    const { sent, tabsGet } = mockUnitPage();
+    tabsGet
+      .mockResolvedValueOnce({
+        active: true,
+        id: 7,
+        url: "https://example.com/",
+      })
+      .mockResolvedValue({
+        active: true,
+        id: 7,
+        url: "https://example.com/obrigado",
+      });
+    const user = userEvent.setup();
+    render(<PageForms onSubmitted={vi.fn()} />);
+    await startQueue(user);
+    await user.click(
+      screen.getByRole("button", { name: "Confirmar 3 envios" }),
+    );
+    const queue = screen.getByRole("group", { name: "Fila de envios" });
+    expect(
+      await within(queue).findByText(
+        "Fila interrompida: 1 de 3 envios disparados.",
+      ),
+    ).toBeVisible();
+    expect(
+      within(queue).getByText(
+        "A página mudou depois do envio anterior, e a fila parou antes de Unidade Norte para não enviar no lugar errado. Atualize a lista para enviar às unidades pendentes.",
+      ),
+    ).toBeVisible();
+    expect(
+      within(queue).getByText(
+        "Unidades pendentes, sem envio: Unidade Norte, Unidade Sul.",
+      ),
+    ).toBeVisible();
+    expect(sent).toHaveLength(1);
+    await user.click(screen.getByRole("button", { name: "Atualizar lista" }));
+    const refreshed = (await screen.findAllByRole("listitem"))[1]!;
+    expect(
+      await within(refreshed).findByRole("button", {
+        name: "Enviar para 2 unidades",
+      }),
+    ).toBeEnabled();
+    expect(
+      within(refreshed).getByRole("switch", {
+        name: "Enviar para várias unidades",
+      }),
+    ).toBeChecked();
+    expect(
+      within(refreshed).getByRole("checkbox", { name: "Unidade Leste" }),
+    ).not.toBeChecked();
+    expect(
+      within(refreshed).getByRole("checkbox", { name: "Unidade Norte" }),
+    ).toBeChecked();
+    expect(
+      within(refreshed).getByRole("checkbox", { name: "Unidade Sul" }),
+    ).toBeChecked();
+    expect(
+      screen.queryByRole("group", { name: "Fila de envios" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("para quando um envio falha e mostra a falha e as pendentes, sem contar a falha como envio", async () => {
+    const { sent } = mockUnitPage((unit, submitted) =>
+      submitted === 2
+        ? { error: "O botão de envio está desabilitado.", ok: false }
+        : respondWithUnit(unit, ["city"]),
+    );
+    const onSubmitted = vi.fn();
+    const user = userEvent.setup();
+    render(<PageForms onSubmitted={onSubmitted} />);
+    await startQueue(user);
+    await user.click(
+      screen.getByRole("button", { name: "Confirmar 3 envios" }),
+    );
+    const queue = screen.getByRole("group", { name: "Fila de envios" });
+    expect(
+      await within(queue).findByText(
+        "Fila interrompida: 1 de 3 envios disparados.",
+      ),
+    ).toBeVisible();
+    expect(
+      within(queue).getByText(
+        "O envio para Unidade Norte falhou, e a fila parou para não seguir com a página num estado desconhecido.",
+      ),
+    ).toBeVisible();
+    expect(
+      within(queue).getByText(
+        "Unidade Norte: falhou. O botão de envio está desabilitado.",
+      ),
+    ).toBeVisible();
+    expect(
+      within(queue).getByText("Campo não preenchido: city."),
+    ).toBeVisible();
+    expect(
+      within(queue).getByText("Unidade pendente, sem envio: Unidade Sul."),
+    ).toBeVisible();
+    expect(sent).toHaveLength(2);
+    expect(onSubmitted.mock.calls.map(([record]) => record?.id)).toEqual([
+      expect.stringMatching(/^LT-\d{8}-\d{6}-001$/),
+      undefined,
+    ]);
+    await expect(readSubmissionHistory()).resolves.toHaveLength(1);
+  });
+
+  it("mantém o envio individual, com a unidade no registro, quando o envio para várias unidades está desligado", async () => {
+    const { sent } = mockUnitPage();
+    const user = userEvent.setup();
+    render(<PageForms onSubmitted={vi.fn()} />);
+    const item = (await screen.findAllByRole("listitem"))[1]!;
+    await user.click(within(item).getByRole("combobox", { name: "Unidade" }));
+    await user.click(
+      await screen.findByRole("option", { name: "Unidade Sul" }),
+    );
+    await user.click(
+      within(item).getByRole("button", { name: "Enviar teste" }),
+    );
+    await confirmSubmission(user);
+    expect(
+      await screen.findByText(/^Envio LT-\d{8}-\d{6}-001 disparado\./),
+    ).toBeVisible();
+    expect(sent).toEqual([
+      expect.objectContaining({ selections: { unit: "south" } }),
+    ]);
+    expect(
+      screen.queryByRole("group", { name: "Fila de envios" }),
+    ).not.toBeInTheDocument();
+    const [record] = await readSubmissionHistory();
+    expect(record?.unit).toEqual({ label: "Unidade Sul", value: "south" });
   });
 });

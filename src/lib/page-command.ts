@@ -8,6 +8,7 @@ export type FormSelect = {
   key: string;
   label: string;
   options: SelectOption[];
+  unit?: boolean;
 };
 
 export type PageCommand =
@@ -70,6 +71,14 @@ export function isRecognizedForms(value: unknown): value is RecognizedForm[] {
   );
 }
 
+export function isSelectOption(value: unknown): value is SelectOption {
+  return (
+    isRecord(value) &&
+    typeof value.label === "string" &&
+    typeof value.value === "string"
+  );
+}
+
 export function isSubmissionResult(value: unknown): value is SubmissionResult {
   return (
     isRecord(value) &&
@@ -129,7 +138,8 @@ function isFormSelect(value: unknown): value is FormSelect {
     typeof value.key === "string" &&
     typeof value.label === "string" &&
     Array.isArray(value.options) &&
-    value.options.every(isSelectOption)
+    value.options.every(isSelectOption) &&
+    (value.unit === undefined || typeof value.unit === "boolean")
   );
 }
 
@@ -143,13 +153,5 @@ function isSelections(value: unknown): value is Record<string, string> {
   return (
     isRecord(value) &&
     Object.values(value).every((entry) => typeof entry === "string")
-  );
-}
-
-function isSelectOption(value: unknown): value is SelectOption {
-  return (
-    isRecord(value) &&
-    typeof value.label === "string" &&
-    typeof value.value === "string"
   );
 }

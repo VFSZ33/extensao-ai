@@ -1,7 +1,12 @@
 import { storage } from "wxt/utils/storage";
 
 import { isSubmissionId } from "@/lib/lead-data";
-import { type FilledValues, isFilledValues } from "@/lib/page-command";
+import {
+  type FilledValues,
+  isFilledValues,
+  isSelectOption,
+  type SelectOption,
+} from "@/lib/page-command";
 
 export type SubmissionRecord = {
   definitionId: string;
@@ -10,6 +15,7 @@ export type SubmissionRecord = {
   id: string;
   pageUrl: string;
   submittedAt: string;
+  unit?: SelectOption;
   values: FilledValues;
 };
 
@@ -27,6 +33,12 @@ export async function addSubmission(record: SubmissionRecord): Promise<void> {
 
 export async function clearSubmissionHistory(): Promise<void> {
   await historyItem.removeValue();
+}
+
+export function listSubmissionUnits(records: SubmissionRecord[]): string[] {
+  return [
+    ...new Set(records.flatMap(({ unit }) => (unit ? [unit.label] : []))),
+  ].sort((first, second) => first.localeCompare(second, "pt-BR"));
 }
 
 export async function readSubmissionHistory(): Promise<SubmissionRecord[]> {
@@ -66,6 +78,7 @@ function isSubmissionRecord(value: unknown): value is SubmissionRecord {
     typeof record.pageUrl === "string" &&
     typeof record.submittedAt === "string" &&
     !Number.isNaN(Date.parse(record.submittedAt)) &&
+    (record.unit === undefined || isSelectOption(record.unit)) &&
     isFilledValues(record.values)
   );
 }

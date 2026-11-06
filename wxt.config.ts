@@ -10,7 +10,8 @@ export default defineConfig({
     description:
       "Envia leads de teste pelos formulários da página e confere as integrações no painel.",
     name: "Scanner de Leads",
-    permissions: ["activeTab", "scripting", "storage"],
+    optional_host_permissions: ["https://*/*"],
+    permissions: ["activeTab", "scripting", "sidePanel", "storage", "tabs"],
   },
   manifestVersion: 3,
   modules: ["@wxt-dev/module-react"],

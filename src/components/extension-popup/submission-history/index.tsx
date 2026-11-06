@@ -1,13 +1,18 @@
 import { Trash2 } from "lucide-react";
 import { useId, useRef, useState } from "react";
 
+import type { SubmissionTracking } from "@/hooks/use-submission-tracking";
+
 import { Button } from "@/components/button";
 import { Confirmation } from "@/components/confirmation";
+import { TrackingStatus } from "@/components/extension-popup/submission-history/tracking-status";
+import { Select } from "@/components/select";
 import { formatDateTime } from "@/lib/date-time";
 import {
   clearSubmissionHistory,
   HISTORY_MAX_RECORDS,
   HISTORY_RETENTION_DAYS,
+  listSubmissionUnits,
   type SubmissionRecord,
 } from "@/lib/submission-history";
 
@@ -16,11 +21,18 @@ export type SubmissionHistoryProps = {
     | { records: SubmissionRecord[]; status: "ready" }
     | { status: "error" | "loading" };
   onCleared: () => void;
+  tracking?: ReadonlyMap<string, SubmissionTracking>;
+  trackingEnabled?: boolean;
 };
+
+const UNIT_FILTER_NONE = "none";
+const UNIT_FILTER_PREFIX = "unit:";
 
 export function SubmissionHistory({
   history,
   onCleared,
+  tracking,
+  trackingEnabled = false,
 }: SubmissionHistoryProps) {
   const clearButton = useRef<HTMLElement>(null);
   const [clearing, setClearing] = useState<"confirming" | "idle" | "loading">(
@@ -29,8 +41,30 @@ export function SubmissionHistory({
   const [feedback, setFeedback] = useState<"cleared" | "error" | "none">(
     "none",
   );
-  const recordCount = history.status === "ready" ? history.records.length : 0;
+  const records = history.status === "ready" ? history.records : [];
+  const recordCount = records.length;
   const sectionId = useId();
+  const [unitFilter, setUnitFilter] = useState<null | string>(null);
+  const units = listSubmissionUnits(records);
+  const filterItems = [
+    { label: "Todas", value: null },
+    ...units.map((label) => ({ label, value: UNIT_FILTER_PREFIX + label })),
+    ...(records.some(({ unit }) => unit === undefined)
+      ? [{ label: "Sem unidade", value: UNIT_FILTER_NONE }]
+      : []),
+  ];
+  const activeFilter = filterItems.some(({ value }) => value === unitFilter)
+    ? unitFilter
+    : null;
+  const shownRecords =
+    activeFilter === null
+      ? records
+      : records.filter(({ unit }) =>
+          activeFilter === UNIT_FILTER_NONE
+            ? unit === undefined
+            : unit !== undefined &&
+              UNIT_FILTER_PREFIX + unit.label === activeFilter,
+        );
 
   function handleCancel() {
     setClearing("idle");
@@ -112,46 +146,79 @@ export function SubmissionHistory({
       {history.status === "ready" && history.records.length === 0 && (
         <p className="text-text-secondary">Nenhum envio registrado.</p>
       )}
-      {history.status === "ready" && history.records.length > 0 && (
+      {units.length > 0 && (
+        <Select
+          items={filterItems}
+          label="Filtrar por unidade"
+          onValueChange={setUnitFilter}
+          value={activeFilter}
+        />
+      )}
+      {activeFilter !== null && (
+        <p className="text-text-secondary">
+          {"Mostrando " +
+            shownRecords.length +
+            " de " +
+            recordCount +
+            (recordCount === 1 ? " envio." : " envios.")}
+        </p>
+      )}
+      {shownRecords.length > 0 && (
         <ul className="flex flex-col gap-3">
-          {history.records.map((record) => (
-            <li
-              className="flex flex-col gap-2 rounded-(--radius-input) border border-border-subtle p-3"
-              key={record.id}
-            >
-              <p className="font-medium wrap-anywhere">{record.id}</p>
-              <p className="wrap-anywhere text-text-secondary">
-                {[record.definitionName, record.formLabel]
-                  .filter(Boolean)
-                  .join(" · ")}
-              </p>
-              <p className="wrap-anywhere text-text-secondary">
-                <time dateTime={record.submittedAt}>
-                  {formatDateTime(record.submittedAt)}
-                </time>
-                {record.pageUrl && " · " + record.pageUrl}
-              </p>
-              <dl className="popup-detail grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
-                {Object.entries(record.values).map(([key, value]) => (
-                  <div className="contents" key={key}>
-                    <dt className="text-text-muted">{key}</dt>
-                    <dd className="wrap-anywhere">
-                      {typeof value === "string"
-                        ? value
-                        : typeof value === "object"
-                          ? value.label +
-                            " (" +
-                            (value.value || "sem valor") +
-                            ")"
-                          : value
-                            ? "marcado"
-                            : "desmarcado"}
-                    </dd>
-                  </div>
-                ))}
-              </dl>
-            </li>
-          ))}
+          {shownRecords.map((record) => {
+            const recordTracking = tracking?.get(record.id);
+
+            return (
+              <li
+                className="flex flex-col gap-2 rounded-(--radius-input) border border-border-subtle p-3"
+                key={record.id}
+              >
+                <p className="font-medium wrap-anywhere">{record.id}</p>
+                {record.unit && (
+                  <p className="wrap-anywhere">
+                    {"Unidade: " + record.unit.label}
+                  </p>
+                )}
+                <p className="wrap-anywhere text-text-secondary">
+                  {[record.definitionName, record.formLabel]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </p>
+                <p className="wrap-anywhere text-text-secondary">
+                  <time dateTime={record.submittedAt}>
+                    {formatDateTime(record.submittedAt)}
+                  </time>
+                  {record.pageUrl && " · " + record.pageUrl}
+                </p>
+                <dl className="popup-detail grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+                  {Object.entries(record.values).map(([key, value]) => (
+                    <div className="contents" key={key}>
+                      <dt className="text-text-muted">{key}</dt>
+                      <dd className="wrap-anywhere">
+                        {typeof value === "string"
+                          ? value
+                          : typeof value === "object"
+                            ? value.label +
+                              " (" +
+                              (value.value || "sem valor") +
+                              ")"
+                            : value
+                              ? "marcado"
+                              : "desmarcado"}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+                {recordTracking && (
+                  <TrackingStatus
+                    enabled={trackingEnabled}
+                    submissionId={record.id}
+                    tracking={recordTracking}
+                  />
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
       <div aria-atomic="true" aria-live="polite">

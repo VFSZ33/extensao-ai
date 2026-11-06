@@ -291,7 +291,14 @@ function listSelects(
     const element = form.querySelector(field.selector);
 
     return element instanceof HTMLSelectElement
-      ? [{ key: field.key, label: field.label, options: listOptions(element) }]
+      ? [
+          {
+            key: field.key,
+            label: field.label,
+            options: listOptions(element),
+            ...(field.unit && { unit: true }),
+          },
+        ]
       : [];
   });
 }

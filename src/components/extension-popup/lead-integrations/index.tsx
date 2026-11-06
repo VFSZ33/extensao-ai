@@ -1,8 +1,9 @@
 import { Form } from "@base-ui/react/form";
 import { ListChecks } from "lucide-react";
-import { useId, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useId, useRef, useState } from "react";
 
 import type { SubmissionHistoryProps } from "@/components/extension-popup/submission-history";
+import type { PageTarget } from "@/hooks/use-page-targets";
 
 import { Button } from "@/components/button";
 import { LeadCard } from "@/components/extension-popup/lead-integrations/lead-card";
@@ -10,6 +11,13 @@ import { ReportCopy } from "@/components/extension-popup/lead-integrations/repor
 import { StatusLabel } from "@/components/extension-popup/lead-integrations/status-label";
 import { Select } from "@/components/select";
 import { TextField } from "@/components/text-field";
+import { useDocumentVisible } from "@/hooks/use-document-visible";
+import { type ActiveTab, getActiveTab } from "@/lib/active-tab";
+import {
+  AUTO_REFRESH_INTERVAL_MS,
+  isSameReport,
+  readRefreshDelay,
+} from "@/lib/auto-refresh";
 import { formatDateTime } from "@/lib/date-time";
 import { describeIncompleteness } from "@/lib/integration-report";
 import {
@@ -17,8 +25,10 @@ import {
   LEAD_STATUS_LABELS,
   type LeadIntegrationReport,
   type LeadStatus,
+  type VerifiedLead,
 } from "@/lib/integration-status";
-import { verifyPanelLeads } from "@/lib/panel-leads";
+import { createLeadFocusCommand } from "@/lib/lead-focus";
+import { focusPanelLead, verifyPanelLeads } from "@/lib/panel-leads";
 import {
   DEFAULT_LEAD_LIMIT,
   isLeadLimit,
@@ -27,21 +37,37 @@ import {
   type PanelQuery,
   SEARCH_MAX_LENGTH,
 } from "@/lib/panel-query";
+import { isPanelId, readPanelAccountId } from "@/lib/panel-session";
 
 export type LeadIntegrationsProps = {
+  autoRefresh?: boolean;
   history: SubmissionHistoryProps["history"];
+  target?: PageTarget;
+  visible?: boolean;
 };
 
-type VerificationState =
-  | { checkedAt: string; message: string; status: "error" }
-  | {
-      checkedAt: string;
-      query: PanelQuery;
-      report: LeadIntegrationReport;
-      status: "ready";
-    }
-  | { status: "idle" | "loading" };
+type ReadyVerification = {
+  checkedAt: string;
+  query: PanelQuery;
+  refresh: RefreshState;
+  report: LeadIntegrationReport;
+  scope: string;
+  status: "ready";
+  tab: ActiveTab;
+};
 
+type RefreshState =
+  | { at: string; message: string; status: "error" }
+  | { at: string; status: "idle" }
+  | { status: "running" };
+
+type VerificationState =
+  | { checkedAt: string; message: string; scope: string; status: "error" }
+  | { scope: string; status: "loading" }
+  | { status: "idle" }
+  | ReadyVerification;
+
+const IDLE_VERIFICATION: VerificationState = { status: "idle" };
 const LIMIT_ITEMS = LEAD_LIMITS.map((limit) => ({
   label: String(limit),
   value: String(limit),
@@ -56,14 +82,26 @@ const SUMMARY_STATUSES: LeadStatus[] = [
   "unavailable",
 ];
 
-export function LeadIntegrations({ history }: LeadIntegrationsProps) {
+export function LeadIntegrations({
+  autoRefresh = false,
+  history,
+  target,
+  visible = true,
+}: LeadIntegrationsProps) {
+  const documentVisible = useDocumentVisible();
+  const generation = useRef(0);
   const [limit, setLimit] = useState<LeadLimit>(DEFAULT_LEAD_LIMIT);
   const running = useRef(false);
   const [search, setSearch] = useState("");
   const sectionId = useId();
-  const [verification, setVerification] = useState<VerificationState>({
-    status: "idle",
-  });
+  const [stored, setStored] = useState<VerificationState>(IDLE_VERIFICATION);
+  const targetScope = target ? readScope(target.tabId, target.url) : undefined;
+  const verification =
+    stored.status === "idle" ||
+    targetScope === undefined ||
+    stored.scope === targetScope
+      ? stored
+      : IDLE_VERIFICATION;
   const counts =
     verification.status === "ready"
       ? countLeadsByStatus(verification.report.leads)
@@ -74,10 +112,83 @@ export function LeadIntegrations({ history }: LeadIntegrationsProps) {
       : [];
   const loading = verification.status === "loading";
   const ready = verification.status === "ready" ? verification : undefined;
+  const refreshAt =
+    ready && ready.refresh.status !== "running" ? ready.refresh.at : undefined;
   const submissionIds =
     history.status === "ready"
       ? history.records.map(({ id }) => id)
       : undefined;
+  const targetTab =
+    target === undefined ? undefined : { id: target.tabId, url: target.url };
+
+  const refreshResult = useEffectEvent(async () => {
+    if (running.current || !ready || ready.refresh.status === "running") {
+      return;
+    }
+
+    generation.current += 1;
+    const current = generation.current;
+    const tab = targetTab ?? ready.tab;
+    setStored((state) =>
+      state.status === "ready"
+        ? { ...state, refresh: { status: "running" } }
+        : state,
+    );
+
+    try {
+      const report = await verifyPanelLeads(ready.query, tab);
+      const at = new Date().toISOString();
+
+      if (current === generation.current) {
+        setStored((state) =>
+          state.status !== "ready"
+            ? state
+            : isSameReport(state.report, report)
+              ? { ...state, refresh: { at, status: "idle" } }
+              : {
+                  ...state,
+                  checkedAt: at,
+                  refresh: { at, status: "idle" },
+                  report,
+                },
+        );
+      }
+    } catch (error) {
+      const at = new Date().toISOString();
+
+      if (current === generation.current) {
+        setStored((state) =>
+          state.status === "ready"
+            ? {
+                ...state,
+                refresh: {
+                  at,
+                  message: describeError(error),
+                  status: "error",
+                },
+              }
+            : state,
+        );
+      }
+    }
+  });
+
+  useEffect(() => {
+    if (!autoRefresh || !visible || !documentVisible || !refreshAt) {
+      return;
+    }
+
+    const timer = setTimeout(
+      () => {
+        void refreshResult();
+      },
+      readRefreshDelay(Date.parse(refreshAt), Date.now()),
+    );
+
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [autoRefresh, documentVisible, refreshAt, visible]);
 
   function handleLimitChange(value: null | string) {
     const next = Number(value);
@@ -93,25 +204,54 @@ export function LeadIntegrations({ history }: LeadIntegrationsProps) {
     }
 
     running.current = true;
+    generation.current += 1;
+    const current = generation.current;
     const checkedAt = new Date().toISOString();
     const query: PanelQuery = { limit, search: search.trim() };
-    setVerification({ status: "loading" });
+    const scope = targetScope ?? "";
+    setStored({ scope, status: "loading" });
 
     try {
-      const report = await verifyPanelLeads(query);
-      setVerification({ checkedAt, query, report, status: "ready" });
+      const tab = targetTab ?? (await getActiveTab());
+      const report = await verifyPanelLeads(query, tab);
+
+      if (current === generation.current) {
+        setStored({
+          checkedAt,
+          query,
+          refresh: { at: checkedAt, status: "idle" },
+          report,
+          scope,
+          status: "ready",
+          tab,
+        });
+      }
     } catch (error) {
-      setVerification({
-        checkedAt,
-        message:
-          error instanceof Error && error.message
-            ? error.message
-            : "Não foi possível verificar as integrações.",
-        status: "error",
-      });
+      if (current === generation.current) {
+        setStored({
+          checkedAt,
+          message: describeError(error),
+          scope,
+          status: "error",
+        });
+      }
     } finally {
       running.current = false;
     }
+  }
+
+  function handleLocate(tab: ActiveTab, lead: VerifiedLead) {
+    const accountId = readPanelAccountId(tab.url);
+
+    if (accountId === undefined) {
+      return Promise.reject(
+        new Error(
+          "Abra a lista de leads de uma conta no painel e verifique de novo.",
+        ),
+      );
+    }
+
+    return focusPanelLead(tab, createLeadFocusCommand(lead, accountId));
   }
 
   return (
@@ -245,6 +385,32 @@ export function LeadIntegrations({ history }: LeadIntegrationsProps) {
           </>
         )}
       </div>
+      {ready && autoRefresh && (
+        <p className="popup-detail text-text-muted">
+          {ready.refresh.status === "running" ? (
+            "Atualizando automaticamente…"
+          ) : (
+            <>
+              {"Atualização automática a cada " +
+                AUTO_REFRESH_INTERVAL_MS / 1000 +
+                " s; última conferência em "}
+              <time dateTime={ready.refresh.at}>
+                {formatDateTime(ready.refresh.at)}
+              </time>
+              .
+            </>
+          )}
+        </p>
+      )}
+      <div aria-atomic="true" aria-live="polite">
+        {ready?.refresh.status === "error" && (
+          <p className="wrap-anywhere text-feedback-warning">
+            {"A atualização automática falhou: " +
+              ready.refresh.message +
+              " O resultado mostrado é o da consulta anterior."}
+          </p>
+        )}
+      </div>
       {ready && (
         <ReportCopy
           checkedAt={ready.checkedAt}
@@ -255,10 +421,29 @@ export function LeadIntegrations({ history }: LeadIntegrationsProps) {
       {ready && ready.report.leads.length > 0 && (
         <ul aria-label="Leads verificados" className="flex flex-col gap-3">
           {ready.report.leads.map((lead) => (
-            <LeadCard key={lead.id} lead={lead} submissionIds={submissionIds} />
+            <LeadCard
+              key={lead.id}
+              lead={lead}
+              onLocate={
+                isPanelId(lead.id)
+                  ? () => handleLocate(targetTab ?? ready.tab, lead)
+                  : undefined
+              }
+              submissionIds={submissionIds}
+            />
           ))}
         </ul>
       )}
     </section>
   );
+}
+
+function describeError(error: unknown): string {
+  return error instanceof Error && error.message
+    ? error.message
+    : "Não foi possível verificar as integrações.";
+}
+
+function readScope(tabId: number, url: string): string {
+  return tabId + " " + (readPanelAccountId(url) ?? "");
 }

@@ -169,6 +169,24 @@ export function countLeadsByStatus(
   return counts;
 }
 
+export function describeIntegration({
+  message,
+  name,
+  reason,
+  status,
+}: LeadIntegration): string {
+  return (
+    (name || "Integração sem nome") +
+    " — " +
+    LEAD_STATUS_LABELS[status] +
+    (status === "error"
+      ? ": " + (message || "motivo não informado pela API")
+      : status === "not-confirmed" && reason
+        ? ": " + reason
+        : "")
+  );
+}
+
 export function isLeadIntegrationReport(
   value: unknown,
 ): value is LeadIntegrationReport {

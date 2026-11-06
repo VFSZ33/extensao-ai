@@ -70,6 +70,7 @@ export const autodromoSectionForm: FormDefinition = {
       label: "Unidade",
       optional: true,
       selector: 'select[name="unit"]',
+      unit: true,
     },
   ],
   id: "autodromo-section",

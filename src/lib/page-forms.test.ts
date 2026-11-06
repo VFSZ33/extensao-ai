@@ -5,7 +5,11 @@ import { fakeBrowser } from "wxt/testing/fake-browser";
 import type { RecognizedForm } from "@/lib/page-command";
 
 import { createLeadData } from "@/lib/lead-data";
-import { detectPageForms, submitTestLead } from "@/lib/page-forms";
+import {
+  detectPageForms,
+  findUnchangedForm,
+  submitTestLead,
+} from "@/lib/page-forms";
 import { readSubmissionHistory } from "@/lib/submission-history";
 
 const form: RecognizedForm = {
@@ -22,7 +26,26 @@ const form: RecognizedForm = {
   ],
 };
 const page = { pageUrl: "https://example.com/oferta", tabId: 7 };
-const tabs: { query: (query: object) => Promise<object[]> } = browser.tabs;
+const tabs: {
+  get: (tabId: number) => Promise<object>;
+  query: (query: object) => Promise<object[]>;
+} = browser.tabs;
+const unitForm: RecognizedForm = {
+  ...form,
+  definitionId: "autodromo-section",
+  definitionName: "Formulário de seção",
+  selects: [
+    {
+      key: "unit",
+      label: "Unidade",
+      options: [
+        { label: "Unidade Norte", value: "north" },
+        { label: "Unidade Sul", value: "south" },
+      ],
+      unit: true,
+    },
+  ],
+};
 
 function mockPageResult(result: unknown) {
   return vi
@@ -49,6 +72,7 @@ describe("Formulários da aba ativa", () => {
       .spyOn(tabs, "query")
       .mockResolvedValue([{ id: 7, url: "https://example.com/oferta" }]);
     await expect(detectPageForms()).resolves.toEqual({
+      documentId: "document",
       forms: [form],
       pageUrl: "https://example.com/oferta",
       tabId: 7,
@@ -179,5 +203,126 @@ describe("Formulários da aba ativa", () => {
     await expect(submitTestLead(page, form)).rejects.toThrow(
       "O envio LT-20261007-080509-001 foi disparado, mas não foi gravado no histórico.",
     );
+  });
+});
+
+describe("Envio com unidade e página conferida", () => {
+  beforeEach(() => {
+    fakeBrowser.reset();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 9, 7, 8, 5, 9));
+  });
+
+  it("grava no registro a unidade do seletor marcado como unidade", async () => {
+    mockPageResult({
+      ok: true,
+      result: {
+        unfilledFields: [],
+        values: { unit: { label: "Unidade Sul", value: "south" } },
+      },
+    });
+    const { record } = await submitTestLead(page, unitForm, { unit: "south" });
+    expect(record.unit).toEqual({ label: "Unidade Sul", value: "south" });
+    await expect(readSubmissionHistory()).resolves.toEqual([record]);
+  });
+
+  it("não grava unidade quando o seletor ficou sem opção ou não é de unidade", async () => {
+    mockPageResult({
+      ok: true,
+      result: {
+        unfilledFields: [],
+        values: { unit: { label: "Selecione a unidade", value: "" } },
+      },
+    });
+    const empty = await submitTestLead(page, unitForm);
+    const unmarked = await submitTestLead(page, form);
+    expect(empty.record).not.toHaveProperty("unit");
+    expect(unmarked.record).not.toHaveProperty("unit");
+  });
+
+  it("injeta o envio só no documento indicado", async () => {
+    const executeScript = mockPageResult({
+      ok: true,
+      result: { unfilledFields: [], values: {} },
+    });
+    await submitTestLead(page, unitForm, { unit: "north" }, "document-1");
+    expect(executeScript).toHaveBeenNthCalledWith(1, {
+      args: ["leadIntegrationTesterPageCommand", expect.any(Object)],
+      func: expect.any(Function),
+      target: { documentIds: ["document-1"], tabId: 7 },
+    });
+    expect(executeScript).toHaveBeenNthCalledWith(2, {
+      files: ["/lead-forms.js"],
+      target: { documentIds: ["document-1"], tabId: 7 },
+    });
+  });
+
+  it("devolve o formulário quando a aba, o endereço e o documento continuam os mesmos", async () => {
+    const executeScript = mockPageResult({ ok: true, result: [unitForm] });
+    vi.spyOn(tabs, "get").mockResolvedValue({
+      active: true,
+      id: 7,
+      url: page.pageUrl,
+    });
+    await expect(
+      findUnchangedForm(
+        { ...page, documentId: "document", forms: [unitForm] },
+        unitForm,
+      ),
+    ).resolves.toEqual(unitForm);
+    expect(executeScript).toHaveBeenCalledWith({
+      files: ["/lead-forms.js"],
+      target: { documentIds: ["document"], tabId: 7 },
+    });
+  });
+
+  it.each([
+    [
+      "a aba deixou de ser a ativa",
+      { active: false, url: page.pageUrl },
+      [unitForm],
+    ],
+    [
+      "o endereço mudou",
+      { active: true, url: page.pageUrl + "#obrigado" },
+      [unitForm],
+    ],
+    ["o formulário sumiu", { active: true, url: page.pageUrl }, []],
+    [
+      "o formulário no mesmo índice é outro",
+      { active: true, url: page.pageUrl },
+      [{ ...unitForm, label: "Outro formulário" }],
+    ],
+  ])("não devolve o formulário quando %s", async (_reason, tab, forms) => {
+    mockPageResult({ ok: true, result: forms });
+    vi.spyOn(tabs, "get").mockResolvedValue({ id: 7, ...tab });
+    await expect(
+      findUnchangedForm(
+        { ...page, documentId: "document", forms: [unitForm] },
+        unitForm,
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  it("não devolve o formulário quando o documento foi trocado ou não é conhecido", async () => {
+    vi.spyOn(tabs, "get").mockResolvedValue({
+      active: true,
+      id: 7,
+      url: page.pageUrl,
+    });
+    const executeScript = vi
+      .spyOn(browser.scripting, "executeScript")
+      .mockRejectedValue(new Error("No document with id document."));
+    await expect(
+      findUnchangedForm(
+        { ...page, documentId: "document", forms: [unitForm] },
+        unitForm,
+      ),
+    ).resolves.toBeUndefined();
+    executeScript.mockClear();
+    await expect(
+      findUnchangedForm({ ...page, forms: [unitForm] }, unitForm),
+    ).resolves.toBeUndefined();
+    expect(executeScript).not.toHaveBeenCalled();
   });
 });

@@ -1,6 +1,7 @@
-import { render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {
+  PANEL_ACCOUNT_ID,
   PANEL_LEADS_URL,
   PANEL_TEST_SUBMISSION_ID,
   panelReport,
@@ -10,6 +11,10 @@ import { browser } from "wxt/browser";
 import { fakeBrowser } from "wxt/testing/fake-browser";
 
 import type { SubmissionHistoryProps } from "@/components/extension-popup/submission-history";
+import type {
+  LeadIntegrationReport,
+  VerifiedLead,
+} from "@/lib/integration-status";
 
 import { LeadIntegrations } from "@/components/extension-popup/lead-integrations";
 
@@ -559,5 +564,305 @@ describe("Integrações dos leads", () => {
         "Não foi possível copiar o relatório. Tente de novo.",
       ),
     ).toBeVisible();
+  });
+});
+
+describe("Atualização automática e foco no lead", () => {
+  const caio = panelReport.leads[2] as VerifiedLead;
+  const pending: LeadIntegrationReport = { leads: [caio], missingLeads: 0 };
+  const done: LeadIntegrationReport = {
+    leads: [
+      {
+        ...caio,
+        integrations: [
+          { message: "", name: "RD Station", reason: "", status: "ok" },
+        ],
+        status: "ok",
+      },
+    ],
+    missingLeads: 0,
+  };
+
+  async function advance(milliseconds: number) {
+    await act(() => vi.advanceTimersByTimeAsync(milliseconds));
+  }
+
+  function getParagraph(text: string): HTMLElement {
+    return screen.getByText(
+      (_content, element) =>
+        element?.tagName === "P" && element.textContent === text,
+    );
+  }
+
+  async function verifyWithSearch(text: string) {
+    fireEvent.change(
+      screen.getByRole("searchbox", { name: "Busca (opcional)" }),
+      { target: { value: text } },
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Verificar integrações" }),
+    );
+    await advance(0);
+  }
+
+  beforeEach(() => {
+    fakeBrowser.reset();
+    vi.useFakeTimers({
+      now: new Date(2026, 9, 19, 15, 30, 0),
+      toFake: ["Date", "setTimeout", "clearTimeout"],
+    });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("atualiza a cada 30 s com a mesma consulta, sem perder a busca, a quantidade e o resultado", async () => {
+    let result = pending;
+    const executeScript = mockPanel(() => ({ ok: true, result }));
+    render(<LeadIntegrations autoRefresh history={emptyHistory} />);
+    await verifyWithSearch("Caio");
+    expect(screen.getByText("1 lead verificado.")).toBeVisible();
+    expect(getCards()[0]).toHaveTextContent("RD Station — Pendente");
+    expect(
+      getParagraph(
+        "Atualização automática a cada 30 s; última conferência em 19/10/2026, 15:30:00.",
+      ),
+    ).toBeVisible();
+    await advance(29000);
+    expect(readVerifications(executeScript)).toBe(1);
+    result = done;
+    await advance(1000);
+    expect(readVerifications(executeScript)).toBe(2);
+    expect(getCards()[0]).toHaveTextContent("RD Station — OK");
+    expect(
+      getParagraph("Consulta concluída em 19/10/2026, 15:30:30."),
+    ).toBeVisible();
+    await advance(30000);
+    expect(readVerifications(executeScript)).toBe(3);
+    expect(
+      getParagraph("Consulta concluída em 19/10/2026, 15:30:30."),
+    ).toBeVisible();
+    expect(
+      getParagraph(
+        "Atualização automática a cada 30 s; última conferência em 19/10/2026, 15:31:00.",
+      ),
+    ).toBeVisible();
+    expect(readQueries(executeScript)).toEqual([
+      { limit: 10, search: "Caio" },
+      { limit: 10, search: "Caio" },
+      { limit: 10, search: "Caio" },
+    ]);
+    expect(
+      screen.getByRole("searchbox", { name: "Busca (opcional)" }),
+    ).toHaveValue("Caio");
+    expect(
+      screen.getByRole("combobox", { name: "Quantidade" }),
+    ).toHaveTextContent("10");
+  });
+
+  it("consulta só com a opção ativa e a seção à vista, e retoma ao voltar", async () => {
+    const executeScript = mockPanel(() => ({ ok: true, result: pending }));
+    const { rerender } = render(<LeadIntegrations history={emptyHistory} />);
+    await verifyWithSearch("Caio");
+    expect(screen.getByText("1 lead verificado.")).toBeVisible();
+    await advance(60000);
+    expect(readVerifications(executeScript)).toBe(1);
+    expect(
+      screen.queryByText(/Atualização automática a cada/),
+    ).not.toBeInTheDocument();
+    rerender(
+      <LeadIntegrations autoRefresh history={emptyHistory} visible={false} />,
+    );
+    await advance(60000);
+    expect(readVerifications(executeScript)).toBe(1);
+    rerender(<LeadIntegrations autoRefresh history={emptyHistory} />);
+    await advance(0);
+    expect(readVerifications(executeScript)).toBe(2);
+    const visibility = vi
+      .spyOn(document, "visibilityState", "get")
+      .mockReturnValue("hidden");
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await advance(60000);
+    expect(readVerifications(executeScript)).toBe(2);
+    visibility.mockReturnValue("visible");
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await advance(0);
+    expect(readVerifications(executeScript)).toBe(3);
+  });
+
+  it("mantém o resultado e avisa quando a atualização falha", async () => {
+    let fail = false;
+    const executeScript = mockPanel(() =>
+      fail
+        ? {
+            error: "A API do painel não respondeu a tempo. Tente de novo.",
+            ok: false,
+          }
+        : { ok: true, result: pending },
+    );
+    render(<LeadIntegrations autoRefresh history={emptyHistory} />);
+    await verifyWithSearch("Caio");
+    expect(screen.getByText("1 lead verificado.")).toBeVisible();
+    fail = true;
+    await advance(30000);
+    expect(readVerifications(executeScript)).toBe(2);
+    expect(
+      getParagraph(
+        "A atualização automática falhou: A API do painel não respondeu a tempo. Tente de novo. O resultado mostrado é o da consulta anterior.",
+      ),
+    ).toBeVisible();
+    expect(getCards()[0]).toHaveTextContent("RD Station — Pendente");
+    fail = false;
+    await advance(30000);
+    expect(readVerifications(executeScript)).toBe(3);
+    expect(
+      screen.queryByText(/A atualização automática falhou/),
+    ).not.toBeInTheDocument();
+  });
+
+  it("não sobrepõe consultas: o clique durante a atualização espera e prevalece", async () => {
+    const finishes: ((value: unknown) => void)[] = [];
+    let running = 0;
+    let parallel = 0;
+    const executeScript = mockPanel(async () => {
+      running += 1;
+      parallel = Math.max(parallel, running);
+      const value = await new Promise((resolve) => {
+        finishes.push(resolve);
+      });
+      running -= 1;
+
+      return value;
+    });
+    render(<LeadIntegrations autoRefresh history={emptyHistory} />);
+    await verifyWithSearch("Caio");
+    finishes[0]?.({ ok: true, result: pending });
+    await advance(0);
+    expect(screen.getByText("1 lead verificado.")).toBeVisible();
+    await advance(30000);
+    expect(finishes).toHaveLength(2);
+    expect(getParagraph("Atualizando automaticamente…")).toBeVisible();
+    await verifyWithSearch("");
+    expect(finishes).toHaveLength(2);
+    expect(
+      screen.getByRole("button", { name: "Verificando integrações…" }),
+    ).toBeVisible();
+    finishes[1]?.({ ok: true, result: done });
+    await advance(0);
+    expect(finishes).toHaveLength(3);
+    expect(screen.queryByText("RD Station — OK")).not.toBeInTheDocument();
+    finishes[2]?.({ ok: true, result: panelReport });
+    await advance(0);
+    expect(screen.getByText("6 leads verificados.")).toBeVisible();
+    expect(parallel).toBe(1);
+    expect(readQueries(executeScript)).toEqual([
+      { limit: 10, search: "Caio" },
+      { limit: 10, search: "Caio" },
+      { limit: 10, search: "" },
+    ]);
+  });
+
+  it("localiza o lead no painel pelo identificador, em destaque no lead com erro", async () => {
+    vi.useRealTimers();
+    const executeScript = vi
+      .spyOn(browser.scripting, "executeScript")
+      .mockImplementation(async (injection) => [
+        {
+          documentId: "document",
+          frameId: 0,
+          result:
+            "files" in injection
+              ? injection.files?.[0] === "/lead-focus.js"
+                ? {
+                    ok: true,
+                    result: { detail: "confirmed", row: "highlighted" },
+                  }
+                : { ok: true, result: panelReport }
+              : undefined,
+        },
+      ]);
+    vi.spyOn(tabs, "query").mockResolvedValue([
+      { id: 7, url: PANEL_LEADS_URL },
+    ]);
+    render(<LeadIntegrations history={emptyHistory} />);
+    const user = await verify();
+    await screen.findByText("6 leads verificados.");
+    const cards = getCards();
+    const locate = (card: HTMLElement | undefined) =>
+      within(card!).getByRole("button", { name: "Localizar no painel" });
+    expect(locate(cards[0])).toHaveAccessibleDescription(
+      "Teste LT-20261008-141748-012",
+    );
+    expect(locate(cards[0])).toHaveClass("bg-action-primary");
+    expect(locate(cards[1])).not.toHaveClass("bg-action-primary");
+    await user.click(locate(cards[0]));
+    expect(
+      await within(cards[0]!).findByText(
+        "Lead localizado: detalhe aberto e linha destacada no painel.",
+      ),
+    ).toBeVisible();
+    const injections = readInjections(executeScript).slice(2);
+    expect(injections).toEqual([
+      expect.objectContaining({
+        args: [
+          "leadIntegrationTesterLeadFocus",
+          expect.objectContaining({
+            accountId: PANEL_ACCOUNT_ID,
+            leadId: panelReport.leads[0]?.id,
+            search: PANEL_TEST_SUBMISSION_ID,
+          }),
+          "https://admin.autodromo.com.br",
+        ],
+      }),
+      expect.objectContaining({ files: ["/lead-focus.js"] }),
+    ]);
+  });
+
+  it("diz quando não localizou o lead e quando o painel não responde", async () => {
+    vi.useRealTimers();
+    let focus: unknown = {
+      ok: true,
+      result: { detail: "unconfirmed", row: "missing" },
+    };
+    vi.spyOn(browser.scripting, "executeScript").mockImplementation(
+      async (injection) => [
+        {
+          documentId: "document",
+          frameId: 0,
+          result:
+            "files" in injection
+              ? injection.files?.[0] === "/lead-focus.js"
+                ? focus
+                : { ok: true, result: panelReport }
+              : undefined,
+        },
+      ],
+    );
+    vi.spyOn(tabs, "query").mockResolvedValue([
+      { id: 7, url: PANEL_LEADS_URL },
+    ]);
+    render(<LeadIntegrations history={emptyHistory} />);
+    const user = await verify();
+    await screen.findByText("6 leads verificados.");
+    const card = getCards()[1]!;
+    const locate = within(card).getByRole("button", {
+      name: "Localizar no painel",
+    });
+    await user.click(locate);
+    expect(
+      await within(card).findByText(
+        "Não foi possível localizar o lead na listagem.",
+      ),
+    ).toHaveClass("text-feedback-warning");
+    focus = undefined;
+    await user.click(locate);
+    expect(
+      await within(card).findByText("O painel retornou uma resposta inválida."),
+    ).toHaveClass("text-feedback-error");
   });
 });

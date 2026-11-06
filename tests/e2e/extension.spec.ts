@@ -59,9 +59,11 @@ type PanelMock = {
   }[];
   setSession: (expiresAt: number) => Promise<PanelTokens>;
   state: {
+    echoSubmission?: boolean;
     failures: PanelFailure[];
     status?: number;
     submissionId?: string;
+    unlisted: string[];
   };
 };
 
@@ -70,6 +72,9 @@ type PanelTokens = { accessToken: string; idToken: string };
 const PANEL_API_ORIGIN = "https://crmv3.autodromo.com.br";
 const PANEL_ORIGIN = "https://admin.autodromo.com.br";
 const PANEL_ACCOUNTS_URL = PANEL_ORIGIN + "/#/contas";
+const PANEL_DATA_PATTERN =
+  /(<script id="panel-leads" type="application\/json">)[\s\S]*?(<\/script>)/;
+const SUBMISSION_ID_PATTERN = /LT-\d{8}-\d{6}-\d{3,}/i;
 
 async function confirmSubmission(
   popup: Page,
@@ -87,14 +92,78 @@ async function confirmSubmission(
   await confirmation.getByRole("button", { name: "Confirmar envio" }).click();
 }
 
+async function findExtensionPage(
+  url: string,
+  userDataDir: string,
+): Promise<ActionPopup> {
+  const [port] = (
+    await readFile(join(userDataDir, "DevToolsActivePort"), "utf8")
+  ).split("\n");
+  let found: ActionPopup | undefined;
+
+  await expect(async () => {
+    const inspector = await chromium.connectOverCDP("http://127.0.0.1:" + port);
+    const page = inspector
+      .contexts()
+      .flatMap((inspected) => inspected.pages())
+      .find((candidate) => candidate.url() === url);
+
+    if (!page) {
+      await inspector.close();
+      throw new Error("Página da extensão ainda não está disponível.");
+    }
+
+    found = {
+      close: async () => {
+        if (!page.isClosed()) {
+          await page.close();
+        }
+
+        await inspector.close();
+      },
+      page,
+    };
+  }).toPass();
+
+  if (!found) {
+    throw new Error("Página da extensão não encontrada.");
+  }
+
+  return found;
+}
+
 async function mockPanel(context: BrowserContext): Promise<PanelMock> {
-  const panelPage = await readFile(resolve("tests/fixtures/panel-leads.html"));
+  const panelPage = await readFile(
+    resolve("tests/fixtures/panel-leads.html"),
+    "utf8",
+  );
   const requests: PanelMock["requests"] = [];
-  const state: PanelMock["state"] = { failures: [] };
+  const state: PanelMock["state"] = { failures: [], unlisted: [] };
+  const listLeads = (submissionId = state.submissionId) =>
+    panelConversions.data.map((lead, index) =>
+      index === 1 && submissionId
+        ? {
+            ...lead,
+            email: submissionId.toLowerCase() + "@example.com",
+            name: "Teste " + submissionId,
+          }
+        : lead,
+    );
 
   await context.route(PANEL_ORIGIN + "/**", (route) =>
     route.fulfill({
-      body: panelPage,
+      body: panelPage.replace(
+        PANEL_DATA_PATTERN,
+        (_match, start: string, end: string) =>
+          start +
+          JSON.stringify(
+            listLeads().map((lead) => ({
+              ...lead,
+              listed: !state.unlisted.includes(lead.id),
+            })),
+          ) +
+          end,
+      ),
       contentType: "text/html; charset=utf-8",
     }),
   );
@@ -109,14 +178,13 @@ async function mockPanel(context: BrowserContext): Promise<PanelMock> {
     const body =
       pathname === "/conversions"
         ? queryPanelConversions(
-            panelConversions.data.map((lead, index) =>
-              index === 1 && state.submissionId
-                ? {
-                    ...lead,
-                    email: state.submissionId.toLowerCase() + "@example.com",
-                    name: "Teste " + state.submissionId,
-                  }
-                : lead,
+            listLeads(
+              state.submissionId ??
+                (state.echoSubmission
+                  ? SUBMISSION_ID_PATTERN.exec(
+                      searchParams.get("search") ?? "",
+                    )?.[0]?.toUpperCase()
+                  : undefined),
             ),
             searchParams,
           )
@@ -196,38 +264,10 @@ async function openActionPopup(
   });
   await session.detach();
 
-  const [port] = (
-    await readFile(join(userDataDir, "DevToolsActivePort"), "utf8")
-  ).split("\n");
-  const popupUrl = "chrome-extension://" + extensionId + "/popup.html";
-  let popup: ActionPopup | undefined;
-
-  await expect(async () => {
-    const inspector = await chromium.connectOverCDP("http://127.0.0.1:" + port);
-    const page = inspector
-      .contexts()
-      .flatMap((inspected) => inspected.pages())
-      .find((candidate) => candidate.url() === popupUrl);
-
-    if (!page) {
-      await inspector.close();
-      throw new Error("Popup da extensão ainda não está disponível.");
-    }
-
-    popup = {
-      close: async () => {
-        await page.close();
-        await inspector.close();
-      },
-      page,
-    };
-  }).toPass();
-
-  if (!popup) {
-    throw new Error("Popup da extensão não encontrado.");
-  }
-
-  return popup;
+  return findExtensionPage(
+    "chrome-extension://" + extensionId + "/popup.html",
+    userDataDir,
+  );
 }
 
 async function openFixturePage(): Promise<FixtureSession> {
@@ -284,6 +324,24 @@ async function openFixturePage(): Promise<FixtureSession> {
     await close();
     throw error;
   }
+}
+
+async function openSidePanel(
+  popup: ActionPopup,
+  extensionId: string,
+  userDataDir: string,
+): Promise<ActionPopup> {
+  await popup.page
+    .getByRole("button", { name: "Abrir no painel lateral" })
+    .click();
+  const sidePanel = await findExtensionPage(
+    "chrome-extension://" + extensionId + "/sidepanel.html",
+    userDataDir,
+  );
+  await expect.poll(() => popup.page.isClosed()).toBe(true);
+  await popup.close();
+
+  return sidePanel;
 }
 
 test("verifica a extensão instalada com o background real", async () => {
@@ -630,6 +688,132 @@ test("preenche caixa de texto e seletor, com a opção escolhida no popup", asyn
     await expect(history.getByRole("listitem").first()).toContainText(
       "Lead de teste " + secondId + ".",
     );
+    await popup.close();
+  } finally {
+    await close();
+  }
+});
+
+test("envia para várias unidades em fila, um lead por unidade, e para quando a página muda", async () => {
+  const { close, context, extensionId, origin, page, userDataDir } =
+    await openFixturePage();
+
+  try {
+    const submissions = page.getByRole("list", { name: "Envios recebidos" });
+    const popup = await openActionPopup(
+      context,
+      extensionId,
+      origin + "/",
+      userDataDir,
+    );
+    const forms = popup.page.getByRole("region", {
+      name: "Formulários da página",
+    });
+    const history = popup.page.getByRole("region", {
+      name: "Histórico de envios",
+    });
+    const queue = forms.getByRole("group", { name: "Fila de envios" });
+    const form = forms
+      .getByRole("listitem")
+      .filter({ hasText: "CRETA 1.0 TGDI FLEX COMFORT - Enviar" });
+    const multiUnit = form.getByRole("switch", {
+      name: "Enviar para várias unidades",
+    });
+    await expect(forms.getByRole("switch")).toHaveCount(1);
+
+    await multiUnit.click();
+    await expect(
+      form.getByRole("combobox", { name: "Unidade" }),
+    ).not.toBeAttached();
+    await form.getByRole("checkbox", { name: "Todas" }).click();
+    await form.getByRole("button", { name: "Enviar para 3 unidades" }).click();
+    const confirmation = popup.page.getByRole("group", {
+      name: "Enviar 3 formulários reais?",
+    });
+    await expect(confirmation).toBeFocused();
+    await expect(confirmation).toContainText(
+      "uma vez para cada unidade, um envio de cada vez: Unidade Afogados, Unidade Boa Viagem, Unidade Caruaru.",
+    );
+    await expect(confirmation).toContainText(
+      "Site de cliente (produção): o envio cria um lead real",
+    );
+    await confirmation
+      .getByRole("button", { name: "Confirmar 3 envios" })
+      .click();
+    await expect(queue).toContainText(
+      "Fila concluída: 3 de 3 envios disparados.",
+      { timeout: 15000 },
+    );
+    await expect(submissions.getByRole("listitem")).toHaveCount(3);
+    const received = await Promise.all(
+      (await submissions.getByRole("listitem").all()).map(
+        async (item): Promise<unknown> => JSON.parse(await item.innerText()),
+      ),
+    );
+    const ids = received.map((submission) => {
+      expect(submission).toMatchObject({ valid: true });
+
+      return (
+        /"name":"Teste (LT-[^"]+)"/.exec(JSON.stringify(submission))?.[1] ?? ""
+      );
+    });
+    expect(received).toEqual(
+      ["unit-afogados", "unit-boa-viagem", "unit-caruaru"].map((unit, index) =>
+        expect.objectContaining({
+          data: expect.objectContaining({
+            message: "Lead de teste " + ids[index] + ".",
+            name: "Teste " + ids[index],
+            unit,
+          }),
+        }),
+      ),
+    );
+    expect(new Set(ids).size).toBe(3);
+    await expect(history.getByRole("listitem")).toHaveCount(3);
+    await expect(history.getByRole("listitem").first()).toContainText(
+      "Unidade: Unidade Caruaru",
+    );
+
+    const filter = history.getByRole("combobox", {
+      name: "Filtrar por unidade",
+    });
+    await expect(filter).toHaveText("Todas");
+    await filter.click();
+    await popup.page
+      .getByRole("option", { name: "Unidade Boa Viagem" })
+      .click();
+    await expect(history.getByRole("listitem")).toHaveCount(1);
+    await expect(history.getByRole("listitem")).toContainText(ids[1] ?? "");
+    await expect(history).toContainText("Mostrando 1 de 3 envios.");
+
+    await page.evaluate(() => {
+      location.hash = "navega-depois-do-envio";
+    });
+    await forms.getByRole("button", { name: "Atualizar lista" }).click();
+    await multiUnit.click();
+    await form.getByRole("checkbox", { name: "Todas" }).click();
+    await form.getByRole("button", { name: "Enviar para 3 unidades" }).click();
+    await confirmation
+      .getByRole("button", { name: "Confirmar 3 envios" })
+      .click();
+    await expect(queue).toContainText(
+      "Fila interrompida: 1 de 3 envios disparados.",
+      { timeout: 15000 },
+    );
+    await expect(queue).toContainText(
+      "Unidades pendentes, sem envio: Unidade Boa Viagem, Unidade Caruaru.",
+    );
+    await expect(submissions.getByRole("listitem")).toHaveCount(4);
+    expect(page.url()).toBe(origin + "/#obrigado");
+
+    await forms.getByRole("button", { name: "Atualizar lista" }).click();
+    await expect(
+      form.getByRole("button", { name: "Enviar para 2 unidades" }),
+    ).toBeEnabled();
+    await expect(
+      form.getByRole("checkbox", { name: "Unidade Afogados" }),
+    ).not.toBeChecked();
+    await expect(queue).not.toBeAttached();
     await popup.close();
   } finally {
     await close();
@@ -1298,6 +1482,251 @@ test("informa no painel a sessão ausente ou expirada, o acesso negado e a conta
       "Abra a lista de leads de uma conta no painel e tente de novo.",
     );
     expect(panel.requests.map(({ method }) => method)).toEqual(["GET", "GET"]);
+    await popup.close();
+  } finally {
+    await close();
+  }
+});
+
+test("abre o painel lateral pelo popup, acompanha a aba ativa e pede acesso ao site sem permissão", async () => {
+  const { close, context, extensionId, page, userDataDir } =
+    await openFixturePage();
+  const testSiteUrl = "https://loja.preview-v2.autodromo.com.br/";
+
+  try {
+    const fixture = await readFile(resolve("tests/fixtures/lead-forms.html"));
+    await context.route(testSiteUrl + "**", (route) =>
+      route.fulfill({
+        body: fixture,
+        contentType: "text/html; charset=utf-8",
+      }),
+    );
+    const panel = await mockPanel(context);
+    await panel.setSession(Date.now() + 3600000);
+    await page.goto(testSiteUrl);
+    const sidePanel = await openSidePanel(
+      await openActionPopup(context, extensionId, testSiteUrl, userDataDir),
+      extensionId,
+      userDataDir,
+    );
+    const forms = sidePanel.page.getByRole("region", {
+      name: "Formulários da página",
+    });
+    const integrations = sidePanel.page.getByRole("region", {
+      name: "Integrações dos leads",
+    });
+    const access = sidePanel.page.getByRole("region", {
+      name: "Acesso a esta aba",
+    });
+    await expect(forms.getByRole("listitem")).toHaveCount(4);
+    await expect(access).toHaveCount(0);
+
+    const panelPage = await context.newPage();
+    await panelPage.goto(PANEL_LEADS_URL);
+    await panelPage.bringToFront();
+    await expect(access).toContainText(
+      "A extensão ainda não tem acesso a admin.autodromo.com.br.",
+    );
+    await expect(
+      access.getByRole("button", { name: "Permitir acesso a este site" }),
+    ).toBeVisible();
+    await expect(forms).toBeHidden();
+    await expect(integrations).toHaveCount(0);
+
+    const panelPopup = await openActionPopup(
+      context,
+      extensionId,
+      PANEL_LEADS_URL,
+      userDataDir,
+    );
+    await panelPopup.close();
+    await page.bringToFront();
+    await expect(forms).toBeVisible();
+    await expect(forms.getByRole("listitem")).toHaveCount(4);
+    await expect(access).toHaveCount(0);
+    await panelPage.bringToFront();
+    await expect(integrations).toBeVisible();
+    await expect(forms).toBeHidden();
+    await expect(access).toHaveCount(0);
+    expect(panel.requests).toEqual([]);
+
+    const search = integrations.getByRole("searchbox", {
+      name: "Busca (opcional)",
+    });
+    await search.fill(PANEL_TEST_SUBMISSION_ID);
+    await search.press("Enter");
+    await expect(integrations).toContainText("1 lead verificado.");
+    await page.bringToFront();
+    await expect(integrations).toBeHidden();
+    await expect(forms).toBeVisible();
+    await panelPage.bringToFront();
+    await expect(integrations).toContainText("1 lead verificado.");
+    await expect(search).toHaveValue(PANEL_TEST_SUBMISSION_ID);
+    expect(panel.requests).toHaveLength(2);
+    await sidePanel.close();
+  } finally {
+    await close();
+  }
+});
+
+test("acompanha no histórico, pelo painel em outra aba, o lead enviado no painel lateral", async () => {
+  const { close, context, extensionId, page, userDataDir } =
+    await openFixturePage();
+  const testSiteUrl = "https://loja.preview-v2.autodromo.com.br/";
+
+  try {
+    const fixture = await readFile(resolve("tests/fixtures/lead-forms.html"));
+    await context.route(testSiteUrl + "**", (route) =>
+      route.fulfill({
+        body: fixture,
+        contentType: "text/html; charset=utf-8",
+      }),
+    );
+    const panel = await mockPanel(context);
+    const { accessToken } = await panel.setSession(Date.now() + 3600000);
+    panel.state.echoSubmission = true;
+    const panelPage = await context.newPage();
+    await panelPage.goto(PANEL_LEADS_URL);
+    await (
+      await openActionPopup(context, extensionId, PANEL_LEADS_URL, userDataDir)
+    ).close();
+    await panelPage.evaluate(() => {
+      document.body.dataset.marker = "sem recarregar";
+    });
+    await page.goto(testSiteUrl);
+    await page.bringToFront();
+    const sidePanel = await openSidePanel(
+      await openActionPopup(context, extensionId, testSiteUrl, userDataDir),
+      extensionId,
+      userDataDir,
+    );
+    const forms = sidePanel.page.getByRole("region", {
+      name: "Formulários da página",
+    });
+    await forms
+      .getByRole("listitem")
+      .filter({ hasText: "Título da seção - Enviar" })
+      .getByRole("button", { name: "Enviar teste" })
+      .click();
+    await confirmSubmission(sidePanel.page, "test");
+    await expect(forms).toContainText(/Envio LT-\d{8}-\d{6}-001 disparado\./);
+    const submissionId =
+      /LT-\d{8}-\d{6}-001/.exec(await forms.innerText())?.[0] ?? "";
+    const tracking = sidePanel.page
+      .getByRole("region", { name: "Histórico de envios" })
+      .getByRole("listitem")
+      .filter({ hasText: submissionId })
+      .getByRole("group", { name: "Acompanhamento no painel" });
+    await expect(tracking).toContainText("No painel: OK");
+    await expect(tracking).toContainText("Syonet — OK");
+    await expect(tracking).toContainText(/Consultado em \d{2}\/\d{2}\/\d{4}/);
+    expect(page.url()).toBe(testSiteUrl);
+    expect(panelPage.url()).toBe(PANEL_LEADS_URL);
+    expect(await panelPage.evaluate(() => document.body.dataset.marker)).toBe(
+      "sem recarregar",
+    );
+    expect(await page.evaluate(() => document.visibilityState)).toBe("visible");
+    expect(panel.requests).toHaveLength(2);
+    expect(panel.requests[0]?.url).toBe(
+      PANEL_API_ORIGIN +
+        "/conversions?accountId=" +
+        PANEL_ACCOUNT_ID +
+        "&limit=5&page=1&search=" +
+        submissionId,
+    );
+
+    for (const { headers, method } of panel.requests) {
+      expect(method).toBe("GET");
+      expect(headers.authorization).toBe("Bearer " + accessToken);
+    }
+
+    expect(await sidePanel.page.content()).not.toContain(accessToken);
+    await sidePanel.close();
+  } finally {
+    await close();
+  }
+});
+
+test("localiza no painel o lead pelo identificador, destaca a linha e avisa quando não a encontra", async () => {
+  const { close, context, extensionId, page, userDataDir } =
+    await openFixturePage();
+
+  try {
+    const panel = await mockPanel(context);
+    await panel.setSession(Date.now() + 3600000);
+    panel.state.unlisted.push(panelConversions.data[2]?.id ?? "");
+    await page.goto(PANEL_LEADS_URL);
+    const popup = await openActionPopup(
+      context,
+      extensionId,
+      PANEL_LEADS_URL,
+      userDataDir,
+    );
+    const integrations = popup.page.getByRole("region", {
+      name: "Integrações dos leads",
+    });
+    await integrations
+      .getByRole("button", { name: "Verificar integrações" })
+      .click();
+    await expect(integrations).toContainText("6 leads verificados.");
+    const requests = panel.requests.length;
+    const cards = integrations
+      .getByRole("list", { name: "Leads verificados" })
+      .locator(":scope > li");
+
+    await cards
+      .nth(0)
+      .getByRole("button", { name: "Localizar no painel" })
+      .click();
+    await expect(cards.nth(0)).toContainText(
+      "Lead localizado: detalhe aberto e linha destacada no painel.",
+    );
+    expect(new URL(page.url()).hash).toBe(
+      "#/contas/" +
+        PANEL_ACCOUNT_ID +
+        "/leads?page=1&leadId=" +
+        panelConversions.data[0]?.id +
+        "&search=" +
+        PANEL_TEST_SUBMISSION_ID,
+    );
+    await expect(
+      page.getByRole("dialog", { name: "Detalhes da conversão" }),
+    ).toContainText(panelConversions.data[0]?.email ?? "");
+    const row = page
+      .getByRole("row")
+      .filter({ hasText: panelConversions.data[0]?.email ?? "" });
+    await expect(row).toHaveCSS("outline-style", "solid");
+    await expect(row).not.toHaveCSS("outline-style", "solid", {
+      timeout: 5000,
+    });
+
+    await cards
+      .nth(1)
+      .getByRole("button", { name: "Localizar no painel" })
+      .click();
+    await expect(cards.nth(1)).toContainText(
+      "Lead localizado: detalhe aberto e linha destacada no painel.",
+    );
+    await expect(page.getByRole("row")).toHaveCount(3);
+    await expect(
+      page.getByRole("row").filter({ hasText: "08/10/2026" }),
+    ).toHaveCSS("outline-style", "solid");
+    await expect(
+      page.getByRole("row").filter({ hasText: "06/10/2026" }),
+    ).not.toHaveCSS("outline-style", "solid");
+
+    await cards
+      .nth(2)
+      .getByRole("button", { name: "Localizar no painel" })
+      .click();
+    await expect(cards.nth(2)).toContainText(
+      "Detalhe do lead aberto no painel, mas não foi possível localizar o lead na listagem.",
+      { timeout: 15000 },
+    );
+    await expect(
+      page.getByRole("dialog", { name: "Detalhes da conversão" }),
+    ).toContainText(panelConversions.data[2]?.email ?? "");
+    expect(panel.requests).toHaveLength(requests);
     await popup.close();
   } finally {
     await close();

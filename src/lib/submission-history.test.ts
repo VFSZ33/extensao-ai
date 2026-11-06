@@ -5,6 +5,7 @@ import { fakeBrowser } from "wxt/testing/fake-browser";
 import {
   addSubmission,
   clearSubmissionHistory,
+  listSubmissionUnits,
   readSubmissionHistory,
   type SubmissionRecord,
   takeSubmissionSequence,
@@ -87,6 +88,48 @@ describe("Histórico de envios", () => {
     ]);
     await browser.storage.local.set({ submissionHistory: "inválido" });
     await expect(readSubmissionHistory()).resolves.toEqual([]);
+  });
+
+  it("lê registros com a unidade e os antigos, gravados sem ela", async () => {
+    const withUnit = {
+      ...createRecord("LT-20261008-090000-002"),
+      unit: { label: "Unidade Norte", value: "north" },
+    };
+    await browser.storage.local.set({
+      submissionHistory: [
+        withUnit,
+        { ...createRecord("LT-20261008-090000-003"), unit: "Unidade Sul" },
+        { ...createRecord("LT-20261008-090000-004"), unit: { value: "south" } },
+        createRecord("LT-20261007-080509-001"),
+      ],
+    });
+    await expect(readSubmissionHistory()).resolves.toEqual([
+      withUnit,
+      createRecord("LT-20261007-080509-001"),
+    ]);
+  });
+
+  it("lista as unidades dos registros, sem repetir e em ordem alfabética", () => {
+    expect(
+      listSubmissionUnits([
+        {
+          ...createRecord("LT-20261008-090000-003"),
+          unit: { label: "Unidade Sul", value: "south" },
+        },
+        createRecord("LT-20261008-090000-002"),
+        {
+          ...createRecord("LT-20261008-090000-001"),
+          unit: { label: "Unidade Norte", value: "north" },
+        },
+        {
+          ...createRecord("LT-20261007-090000-001"),
+          unit: { label: "Unidade Sul", value: "south" },
+        },
+      ]),
+    ).toEqual(["Unidade Norte", "Unidade Sul"]);
+    expect(
+      listSubmissionUnits([createRecord("LT-20261008-090000-002")]),
+    ).toEqual([]);
   });
 
   it("entrega uma sequência crescente que persiste entre leituras", async () => {

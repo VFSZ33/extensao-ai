@@ -1,9 +1,14 @@
 import { FlaskConical } from "lucide-react";
+import { useId } from "react";
 import { twMerge } from "tailwind-merge";
 
+import type { LeadFocusResult } from "@/lib/lead-focus";
+
+import { LeadLocator } from "@/components/extension-popup/lead-integrations/lead-card/lead-locator";
 import { StatusLabel } from "@/components/extension-popup/lead-integrations/status-label";
 import { formatDateTime } from "@/lib/date-time";
 import {
+  describeIntegration,
   LEAD_STATUS_LABELS,
   type VerifiedLead,
 } from "@/lib/integration-status";
@@ -11,10 +16,12 @@ import { findSubmissionId } from "@/lib/lead-data";
 
 export type LeadCardProps = {
   lead: VerifiedLead;
+  onLocate?: () => Promise<LeadFocusResult>;
   submissionIds: string[] | undefined;
 };
 
-export function LeadCard({ lead, submissionIds }: LeadCardProps) {
+export function LeadCard({ lead, onLocate, submissionIds }: LeadCardProps) {
+  const nameId = useId();
   const submissionId =
     findSubmissionId(lead.name) ?? findSubmissionId(lead.email);
 
@@ -26,7 +33,7 @@ export function LeadCard({ lead, submissionIds }: LeadCardProps) {
       )}
     >
       <div className="flex items-start justify-between gap-3">
-        <p className="min-w-0 font-medium wrap-anywhere">
+        <p className="min-w-0 font-medium wrap-anywhere" id={nameId}>
           {lead.name || "Lead sem nome"}
         </p>
         <div className="shrink-0">
@@ -64,16 +71,7 @@ export function LeadCard({ lead, submissionIds }: LeadCardProps) {
           {lead.integrations.map((integration) => (
             <li key={integration.name}>
               <StatusLabel status={integration.status}>
-                {(integration.name || "Integração sem nome") +
-                  " — " +
-                  LEAD_STATUS_LABELS[integration.status] +
-                  (integration.status === "error"
-                    ? ": " +
-                      (integration.message || "motivo não informado pela API")
-                    : integration.status === "not-confirmed" &&
-                        integration.reason
-                      ? ": " + integration.reason
-                      : "")}
+                {describeIntegration(integration)}
               </StatusLabel>
             </li>
           ))}
@@ -91,6 +89,13 @@ export function LeadCard({ lead, submissionIds }: LeadCardProps) {
       )}
       {lead.status === "unavailable" && lead.reason && (
         <p className="wrap-anywhere text-text-secondary">{lead.reason}</p>
+      )}
+      {onLocate && (
+        <LeadLocator
+          describedBy={nameId}
+          emphasized={lead.status === "error"}
+          locate={onLocate}
+        />
       )}
     </li>
   );

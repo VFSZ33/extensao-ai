@@ -13,6 +13,6 @@ if (!root) {
 
 createRoot(root).render(
   <StrictMode>
-    <ExtensionPopup />
+    <ExtensionPopup surface="popup" />
   </StrictMode>,
 );

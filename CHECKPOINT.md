@@ -1,5 +1,23 @@
 # Checkpoint — branch `feat/scanner-confiavel`
 
+## Tarefa em andamento: v3 (06/11/2026, sem commit nem push)
+
+Pedido: quatro melhorias e, ao final, um zip chamado v3.
+
+1. **Parte 1 — concluída e conferida:** painel lateral, acesso por site, atualização automática e localizar o lead no painel.
+   - Checagens: formato, lint, tipos e 519 testes unitários passam; o implementador relatou 13 e2e passando.
+   - `wxt.config.ts` ganhou `sidePanel`, `tabs` e `optional_host_permissions: ["https://*/*"]`.
+   - **Decisão do humano:** manter a permissão `tabs`, aceitando o aviso "Ler seu histórico de navegação". Sem ela, o painel lateral não lê a URL da aba.
+2. **Parte 2 — concluída e conferida:** fila de envios para várias unidades.
+   - Checagens rodadas pela sessão principal: formato, lint, tipos, 555 testes unitários, 14 e2e, `git diff --check` e os arquivos novos. Nenhuma supressão.
+   - Revisão independente concluída. O único achado (contorno permanente ao localizar duas vezes) foi corrigido e ganhou teste.
+3. **Entregue:** checagens finais com 556 testes unitários e 14 e2e passando. Zip em `.output/scanner-de-leads-v3.zip`. Sem commit nem push.
+   - O usuário marca as unidades e confirma uma vez; os leads saem em sequência, cada um com identificador próprio.
+   - A fila para se a página mudar e mostra as unidades pendentes.
+   - O histórico mostra a unidade e tem filtro por unidade.
+
+## Estado anterior (20/10/2026)
+
 Estado em 20/10/2026. Branch criada a partir de `master` (`4e75525`, sincronizada com `origin/master`). Todas as mudanças abaixo estão **não commitadas** no working tree.
 
 ## Objetivo atual

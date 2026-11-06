@@ -4,6 +4,26 @@ As mudanças de cada entrega do Scanner de Leads, da mais recente para a mais an
 
 ## Não lançado
 
+### Envio para várias unidades
+
+- No formulário com seletor de unidade (marcado com unit: true na definição), Enviar para várias unidades troca o seletor por caixas com as opções válidas da página e Todas; uma única confirmação mostra o site, o formulário, o aviso do ambiente e as unidades escolhidas.
+- A fila envia um lead por unidade, um de cada vez e com 2 s entre eles, cada um com identificador, dados, registro no histórico e acompanhamento no painel próprios; o envio individual continua como antes.
+- Antes de cada envio, a fila confere que a aba continua a ativa, no mesmo endereço e documento, com o formulário e a unidade na página; se a página mudou ou um envio falhou, para e mostra as unidades pendentes, que Atualizar lista deixa marcadas.
+- Progresso visível (Enviando 2 de 5), resultado por unidade, bloqueio de outros envios durante a fila e Cancelar fila, que para depois do envio em andamento.
+- O histórico grava e mostra a unidade de cada envio e tem Filtrar por unidade, com Todas por padrão e Sem unidade para os registros antigos, que continuam válidos.
+
+### Painel lateral, atualização automática e foco no lead
+
+- Painel lateral do Chrome com a mesma interface do popup, aberto pelo botão Abrir no painel lateral do popup; o clique no ícone continua abrindo o popup e a fixação do painel fica com os controles do navegador.
+- No painel lateral, a interface acompanha a aba ativa e a navegação, mostra os formulários, a verificação das integrações ou o pedido de acesso, e guarda o estado de cada seção ao trocar de aba; o resultado da verificação sai quando a aba do painel muda de conta.
+- Acesso por site em tempo de execução: Permitir acesso a este site pede ao navegador só a origem https da aba ativa, inclusive a do painel, e a resposta fica guardada pelo navegador; recusado, o painel lateral avisa e o popup continua funcionando só com activeTab.
+- Novas permissões: sidePanel, tabs, para ler o endereço da aba ativa e pedir a origem certa, e a permissão de host opcional `https://*/*`, sem nenhum site concedido na instalação.
+- Opção Atualizar automaticamente, ativada por padrão e gravada no armazenamento local só quando muda.
+- Depois de um envio, o registro do histórico mostra o status do lead e de cada integração, consultado pelo identificador do envio na aba do painel aberta numa conta, sem trazê-la para frente nem recarregá-la; a consulta se repete a cada 15 s enquanto o lead não aparece ou está Pendente ou Sem evento, por até 5 min. Sem aba do painel ou sem acesso, o registro explica como conferir.
+- O resultado da verificação das integrações é atualizado a cada 30 s com a mesma busca e quantidade, sem perder o que está na tela, e pausa fora de vista; falha na atualização mantém o resultado anterior com aviso.
+- Uma consulta por vez ao painel, também entre o popup e o painel lateral: o pedido novo espera o anterior, e um resultado automático que chega depois de um clique é descartado.
+- Localizar no painel em cada lead da verificação, em destaque nos com Erro: troca só o hash da aba do painel para a lista da conta com leadId e search, confere o detalhe aberto pelo e-mail do lead, rola até a linha identificada pelo leadId ou pelo e-mail com a data da conversão e a contorna por 3 s; sem identificação única, abre só o detalhe e diz isso, e no prazo de 10 s avisa que não localizou, sem gravar nada no painel.
+
 ### Verificação das integrações no painel
 
 - Quantidade de leads consultados escolhida no popup (5, 10 ou 20, com 10 de partida) e busca opcional pela API do painel, com Enter para consultar; quantidade e busca não são gravadas, e os campos ficam travados durante a consulta.

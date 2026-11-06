@@ -489,6 +489,10 @@
           valid: validators[form.dataset.fixture](data, form),
         });
         document.getElementById("submissions").append(item);
+
+        if (location.hash === "#navega-depois-do-envio") {
+          location.hash = "obrigado";
+        }
       });
     </script>
   </body>

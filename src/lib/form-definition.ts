@@ -11,7 +11,7 @@ export type FormDefinition = {
 export type FormFieldDefinition = (
   | { comparison: "digits" | "exact"; kind: "text"; source: keyof LeadData }
   | { kind: "checkbox" }
-  | { kind: "select"; label: string }
+  | { kind: "select"; label: string; unit?: boolean }
 ) & {
   key: string;
   optional?: boolean;

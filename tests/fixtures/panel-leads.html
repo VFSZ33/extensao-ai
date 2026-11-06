@@ -8,13 +8,104 @@
     <main>
       <h1>Leads da conta de teste</h1>
       <p>Página local que representa o painel administrativo nos testes.</p>
+      <table aria-label="Leads da conta" hidden>
+        <thead>
+          <tr>
+            <th>Nome</th>
+            <th>E-mail</th>
+            <th>Conversão</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
     </main>
+    <aside aria-label="Detalhes da conversão" hidden role="dialog">
+      <h2>Detalhes da conversão</h2>
+      <p data-detail-name></p>
+      <p data-detail-email></p>
+    </aside>
+    <script id="panel-leads" type="application/json">
+      []
+    </script>
     <script>
       window.fetch = () => {
         document.body.dataset.pageFetch = "called";
 
         return Promise.reject(new Error("fetch da página"));
       };
+
+      const leads = JSON.parse(
+        document.getElementById("panel-leads").textContent,
+      );
+      const table = document.querySelector("table");
+      const detail = document.querySelector("aside");
+      let rendering = 0;
+
+      function render() {
+        const route = /^#\/contas\/[^/?]+\/leads(?:\?(.*))?$/.exec(
+          location.hash,
+        );
+        const parameters = new URLSearchParams(route ? route[1] || "" : "");
+        const term = (parameters.get("search") || "").toLowerCase();
+        const lead = leads.find(({ id }) => id === parameters.get("leadId"));
+        const current = ++rendering;
+        document.body.dataset.route = route ? "leads" : "other";
+
+        setTimeout(() => {
+          if (current !== rendering) {
+            return;
+          }
+
+          table.hidden = !route;
+          table.tBodies[0].replaceChildren(
+            ...leads
+              .filter(
+                ({ email, listed, name, phone }) =>
+                  listed &&
+                  [email, name, phone].some((value) =>
+                    value.toLowerCase().includes(term),
+                  ),
+              )
+              .map(({ createdAt, email, name }) => {
+                const row = document.createElement("tr");
+                row.append(
+                  ...[
+                    name,
+                    email,
+                    new Date(createdAt).toLocaleString("pt-BR", {
+                      dateStyle: "short",
+                      timeStyle: "short",
+                    }),
+                  ].map((text) => {
+                    const cell = document.createElement("td");
+                    cell.textContent = text;
+
+                    return cell;
+                  }),
+                );
+
+                return row;
+              }),
+          );
+        }, 500);
+
+        setTimeout(() => {
+          if (current !== rendering) {
+            return;
+          }
+
+          detail.hidden = !route || !lead;
+          detail.querySelector("[data-detail-name]").textContent = lead
+            ? lead.name
+            : "";
+          detail.querySelector("[data-detail-email]").textContent = lead
+            ? lead.email
+            : "";
+        }, 750);
+      }
+
+      window.addEventListener("hashchange", render);
+      render();
     </script>
   </body>
 </html>

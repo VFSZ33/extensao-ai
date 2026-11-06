@@ -1,29 +1,51 @@
 import { CircleCheck } from "lucide-react";
 import { useEffect, useState } from "react";
+import { twMerge } from "tailwind-merge";
+
+import type { SubmissionRecord } from "@/lib/submission-history";
 
 import iconUrl from "@/assets/icon.svg";
 import { Button } from "@/components/button";
 import { LeadIntegrations } from "@/components/extension-popup/lead-integrations";
 import { PageForms } from "@/components/extension-popup/page-forms";
+import { Preferences } from "@/components/extension-popup/preferences";
+import { SidePanelOpener } from "@/components/extension-popup/side-panel-opener";
+import { SiteAccess } from "@/components/extension-popup/site-access";
 import {
   SubmissionHistory,
   type SubmissionHistoryProps,
 } from "@/components/extension-popup/submission-history";
+import { useAutoRefreshPreference } from "@/hooks/use-auto-refresh-preference";
+import { useDocumentVisible } from "@/hooks/use-document-visible";
+import { usePageTargets } from "@/hooks/use-page-targets";
+import { useSubmissionTracking } from "@/hooks/use-submission-tracking";
 import { verifyExtension } from "@/lib/extension-messaging";
 import { isPanelActive } from "@/lib/panel-leads";
 import { readSubmissionHistory } from "@/lib/submission-history";
+
+export type ExtensionPopupProps = { surface?: ExtensionSurface };
+
+export type ExtensionSurface = "popup" | "side-panel";
 
 type VerificationState =
   | { message: string; status: "error" | "success" }
   | { status: "idle" | "loading" };
 
-export function ExtensionPopup() {
+export function ExtensionPopup({ surface = "popup" }: ExtensionPopupProps) {
   const [activePage, setActivePage] = useState<"page" | "panel" | "unknown">(
     "unknown",
   );
+  const autoRefresh = useAutoRefreshPreference();
+  const documentVisible = useDocumentVisible();
   const [history, setHistory] = useState<SubmissionHistoryProps["history"]>({
     status: "loading",
   });
+  const sidePanel = surface === "side-panel";
+  const targets = usePageTargets(sidePanel);
+  const tracking = useSubmissionTracking(
+    autoRefresh.enabled === true,
+    documentVisible,
+  );
   const [verification, setVerification] = useState<VerificationState>({
     status: "idle",
   });
@@ -31,11 +53,14 @@ export function ExtensionPopup() {
   useEffect(() => {
     let active = true;
 
-    void isPanelActive().then((panel) => {
-      if (active) {
-        setActivePage(panel ? "panel" : "page");
-      }
-    });
+    if (!sidePanel) {
+      void isPanelActive().then((panel) => {
+        if (active) {
+          setActivePage(panel ? "panel" : "page");
+        }
+      });
+    }
+
     void loadHistory().then((state) => {
       if (active) {
         setHistory(state);
@@ -45,10 +70,18 @@ export function ExtensionPopup() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [sidePanel]);
 
   async function handleHistoryChanged() {
     setHistory(await loadHistory());
+  }
+
+  async function handleSubmitted(record?: SubmissionRecord) {
+    if (record && autoRefresh.enabled) {
+      tracking.track(record.id);
+    }
+
+    await handleHistoryChanged();
   }
 
   async function handleVerify() {
@@ -66,7 +99,12 @@ export function ExtensionPopup() {
   }
 
   return (
-    <main className="flex w-(--spacing-popup-width) flex-col gap-6 p-6">
+    <main
+      className={twMerge(
+        "flex flex-col gap-6 p-6",
+        sidePanel ? "w-full min-w-0" : "w-(--spacing-popup-width)",
+      )}
+    >
       <header className="flex flex-col gap-3">
         <img alt="" className="size-8" src={iconUrl} />
         <h1 className="popup-title">Scanner de Leads</h1>
@@ -76,12 +114,47 @@ export function ExtensionPopup() {
           chega ao painel e, com o painel aberto, verifique o envio dos leads às
           integrações.
         </p>
+        {!sidePanel && <SidePanelOpener />}
       </header>
-      {activePage === "page" && (
-        <PageForms onSubmitted={handleHistoryChanged} />
+      {!sidePanel && activePage === "page" && (
+        <PageForms onSubmitted={handleSubmitted} />
       )}
-      {activePage === "panel" && <LeadIntegrations history={history} />}
-      <SubmissionHistory history={history} onCleared={handleHistoryChanged} />
+      {!sidePanel && activePage === "panel" && (
+        <LeadIntegrations
+          autoRefresh={autoRefresh.enabled === true}
+          history={history}
+        />
+      )}
+      {sidePanel &&
+        targets.status !== "loading" &&
+        targets.current?.access !== "granted" && (
+          <SiteAccess target={targets.current} />
+        )}
+      {sidePanel && targets.page && (
+        <div hidden={targets.current !== targets.page}>
+          <PageForms onSubmitted={handleSubmitted} target={targets.page} />
+        </div>
+      )}
+      {sidePanel && targets.panel && (
+        <div hidden={targets.current !== targets.panel}>
+          <LeadIntegrations
+            autoRefresh={autoRefresh.enabled === true}
+            history={history}
+            target={targets.panel}
+            visible={targets.current === targets.panel}
+          />
+        </div>
+      )}
+      <SubmissionHistory
+        history={history}
+        onCleared={handleHistoryChanged}
+        tracking={tracking.trackings}
+        trackingEnabled={autoRefresh.enabled === true}
+      />
+      <Preferences
+        autoRefresh={autoRefresh.enabled}
+        onAutoRefreshChange={autoRefresh.save}
+      />
       <section
         aria-label="Verificação da extensão"
         className="flex flex-col gap-3 rounded-lg border border-border-subtle bg-surface-panel p-4"

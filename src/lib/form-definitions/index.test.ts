@@ -94,6 +94,7 @@ describe("Definições de formulário", () => {
               { label: "Unidade Boa Viagem", value: "unit-boa-viagem" },
               { label: "Unidade Caruaru", value: "unit-caruaru" },
             ],
+            unit: true,
           },
         ],
       },
