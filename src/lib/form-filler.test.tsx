@@ -1,11 +1,13 @@
 import { act, render, screen } from "@testing-library/react";
+import { stubFileTransfer } from "@tests/file-transfer";
 import { useState } from "react";
 import { flushSync } from "react-dom";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { FormDefinition } from "@/lib/form-definition";
 
 import {
+  ATTACHMENT_UPLOAD_TIMEOUT_MS,
   detectForms,
   fillAndSubmitForm,
   runPageCommand,
@@ -13,6 +15,8 @@ import {
 import { createLeadData } from "@/lib/lead-data";
 
 type ControlledFormProps = {
+  accept?: string;
+  attachment?: "rejected" | "unconfirmed" | "uploaded";
   detailed?: boolean;
   frozenUnit?: boolean;
   onSubmit: (data: Record<string, FormDataEntryValue>) => void;
@@ -60,6 +64,18 @@ const definition: FormDefinition = {
   name: "Formulário controlado",
   submitSelector: 'button[type="submit"]',
 };
+const attachmentDefinition: FormDefinition = {
+  ...definition,
+  fields: [
+    ...definition.fields,
+    {
+      key: "document",
+      kind: "file",
+      selector: 'input[type="file"]',
+      uploadedSelector: 'input[type="hidden"][name="attachment"]',
+    },
+  ],
+};
 const lead = createLeadData("LT-20261007-080509-012");
 const maskedPhone =
   "(" +
@@ -70,6 +86,8 @@ const maskedPhone =
   lead.phone.slice(7);
 
 function ControlledForm({
+  accept = ".pdf,.jpg,.jpeg,.png",
+  attachment,
   detailed = false,
   frozenUnit = false,
   onSubmit,
@@ -83,6 +101,7 @@ function ControlledForm({
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [unit, setUnit] = useState("");
+  const [uploadKey, setUploadKey] = useState("");
 
   return (
     <form
@@ -152,6 +171,28 @@ function ControlledForm({
           <input disabled name="coupon" />
         </>
       )}
+      {attachment && (
+        <>
+          <input
+            accept={accept}
+            id="document"
+            onChange={(event) => {
+              const file = event.target.files?.item(0);
+              setUploadKey("");
+
+              if (file && attachment === "rejected") {
+                event.target.files = new DataTransfer().files;
+              } else if (file && attachment === "uploaded") {
+                setTimeout(() => {
+                  flushSync(() => setUploadKey("documents/" + file.name));
+                }, 500);
+              }
+            }}
+            type="file"
+          />
+          <input name="attachment" type="hidden" value={uploadKey} />
+        </>
+      )}
       {requiredNotes && <textarea name="notes" required />}
       <button disabled={submitDisabled} type="submit">
         Enviar
@@ -171,7 +212,13 @@ function getForm(): HTMLFormElement {
 }
 
 describe("Preenchimento de formulário", () => {
+  beforeEach(() => {
+    stubFileTransfer();
+  });
+
   afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
     document.body.replaceChildren();
   });
 
@@ -370,6 +417,143 @@ describe("Preenchimento de formulário", () => {
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
+  it("anexa o PDF de teste, espera o site confirmar o anexo e envia", async () => {
+    const onSubmit = vi.fn();
+    render(<ControlledForm attachment="uploaded" onSubmit={onSubmit} />);
+    await expect(
+      act(() => fillAndSubmitForm(getForm(), attachmentDefinition, lead)),
+    ).resolves.toEqual({
+      unfilledFields: [],
+      values: {
+        document: lead.attachment.name,
+        name: lead.name,
+        phone: maskedPhone,
+        terms: true,
+      },
+    });
+    expect(onSubmit).toHaveBeenCalledWith({
+      attachment: "documents/" + lead.attachment.name,
+      name: lead.name,
+      phone: maskedPhone,
+      terms: "on",
+    });
+    const file = getForm()
+      .querySelector<HTMLInputElement>('input[type="file"]')
+      ?.files?.item(0);
+    expect(file?.name).toBe("lead-de-teste-LT-20261007-080509-012.pdf");
+    expect(file?.type).toBe("application/pdf");
+    await expect(file?.text()).resolves.toBe(lead.attachment.content);
+  });
+
+  it("dispara no campo de arquivo a sequência de eventos de quem escolhe o arquivo", async () => {
+    const events: string[] = [];
+    render(<ControlledForm attachment="uploaded" onSubmit={vi.fn()} />);
+    const input = getForm().querySelector('input[type="file"]');
+
+    for (const type of [
+      "blur",
+      "change",
+      "focus",
+      "focusin",
+      "focusout",
+      "input",
+    ]) {
+      input?.addEventListener(type, () => {
+        events.push(type);
+      });
+    }
+
+    await act(() => fillAndSubmitForm(getForm(), attachmentDefinition, lead));
+    expect(events).toEqual([
+      "focus",
+      "focusin",
+      "input",
+      "change",
+      "blur",
+      "focusout",
+    ]);
+  });
+
+  it("não envia quando o site não confirma o anexo no prazo", async () => {
+    vi.useFakeTimers();
+    const onSubmit = vi.fn();
+    render(<ControlledForm attachment="unconfirmed" onSubmit={onSubmit} />);
+    let settled = false;
+    const submission = fillAndSubmitForm(
+      getForm(),
+      attachmentDefinition,
+      lead,
+    ).finally(() => {
+      settled = true;
+    });
+    const rejection = expect(submission).rejects.toThrow(
+      'O site não confirmou o anexo "document" em 10 s. O formulário não foi enviado.',
+    );
+    await act(() => vi.advanceTimersByTimeAsync(ATTACHMENT_UPLOAD_TIMEOUT_MS));
+    expect(settled).toBe(false);
+    await act(() => vi.advanceTimersByTimeAsync(250));
+    await rejection;
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("não envia quando a página recusa o arquivo de teste", async () => {
+    const onSubmit = vi.fn();
+    render(<ControlledForm attachment="rejected" onSubmit={onSubmit} />);
+    await expect(
+      act(() => fillAndSubmitForm(getForm(), attachmentDefinition, lead)),
+    ).rejects.toThrow('O campo "document" não aceitou o arquivo de teste.');
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it.each(["", ".PDF", ".png, .pdf", "application/pdf", "application/*"])(
+    "aceita o PDF de teste no campo com accept %j",
+    async (accept) => {
+      const onSubmit = vi.fn();
+      render(
+        <ControlledForm
+          accept={accept}
+          attachment="uploaded"
+          onSubmit={onSubmit}
+        />,
+      );
+      await act(() => fillAndSubmitForm(getForm(), attachmentDefinition, lead));
+      expect(onSubmit).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it.each([".png,.jpg", "image/*", "application/zip"])(
+    "não preenche nem envia quando o campo com accept %j não aceita PDF",
+    async (accept) => {
+      const onSubmit = vi.fn();
+      render(
+        <ControlledForm
+          accept={accept}
+          attachment="uploaded"
+          onSubmit={onSubmit}
+        />,
+      );
+      await expect(
+        act(() => fillAndSubmitForm(getForm(), attachmentDefinition, lead)),
+      ).rejects.toThrow(
+        'O campo "document" não aceita o arquivo de teste, um PDF.',
+      );
+      expect(getForm().elements.namedItem("name")).toHaveValue("");
+      expect(onSubmit).not.toHaveBeenCalled();
+    },
+  );
+
+  it("não preenche nem envia quando falta o campo que recebe o anexo", async () => {
+    const onSubmit = vi.fn();
+    render(<ControlledForm attachment="uploaded" onSubmit={onSubmit} />);
+    getForm().querySelector('input[name="attachment"]')?.remove();
+    await expect(
+      act(() => fillAndSubmitForm(getForm(), attachmentDefinition, lead)),
+    ).rejects.toThrow(
+      'O campo que recebe o anexo "document" não foi encontrado no formulário.',
+    );
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
   it("descreve o formulário pelo rótulo próprio ou pelo título mais próximo", () => {
     document.body.innerHTML =
       '<form data-gtag-label=" Oferta A "><input name="terms" /></form>' +
@@ -403,6 +587,18 @@ describe("Preenchimento de formulário", () => {
       index: 0,
       lead,
       selections: { unit: 1 },
+      type: "submit-form",
+    },
+    {
+      definitionId: "controlled",
+      index: 0,
+      lead: { ...lead, attachment: { ...lead.attachment, type: "image/png" } },
+      type: "submit-form",
+    },
+    {
+      definitionId: "controlled",
+      index: 0,
+      lead: { ...lead, attachment: undefined },
       type: "submit-form",
     },
   ])("rejeita o comando inválido %j", async (command) => {

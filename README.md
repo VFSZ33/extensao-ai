@@ -29,7 +29,7 @@ A confirmação diferencia o ambiente pelo endereço da aba no momento da lista:
 | Site de testes  | https em um host terminado em .preview-v2.autodromo.com.br, na constante TEST_SITE_HOST_SUFFIXES de src/lib/site-environment.ts | O lead vai para o painel do ambiente de testes.                                                                                                               |
 | Site de cliente | Qualquer outro endereço, inclusive http, localhost e endereço não identificado                                                  | Aviso em destaque: o envio cria um lead real, que a concessionária recebe como contato de verdade; o botão de confirmar fica com o visual de ação destrutiva. |
 
-Quando o formulário tem um seletor mapeado, o popup mostra as opções reais dele na página e o envio usa a opção escolhida; Nenhuma, o padrão, deixa o seletor como a página o apresenta. O popup mostra o resultado do envio ou o erro: página sem acesso, nenhum formulário reconhecido, campo da definição ausente, campo obrigatório que a definição não preenche, valor recusado pela página ou opção escolhida que não está mais na página. Junto do resultado, avisa quais campos visíveis e editáveis do formulário ficaram vazios por não estarem na definição; o aviso não impede o envio.
+Quando o formulário tem um seletor mapeado, o popup mostra as opções reais dele na página e o envio usa a opção escolhida; Nenhuma, o padrão, deixa o seletor como a página o apresenta. O popup mostra o resultado do envio ou o erro: página sem acesso, nenhum formulário reconhecido, campo da definição ausente, campo obrigatório que a definição não preenche, valor recusado pela página, opção escolhida que não está mais na página, campo de arquivo que não aceita PDF, anexo recusado pela página ou anexo que o site não confirma no prazo. Junto do resultado, avisa quais campos visíveis e editáveis do formulário ficaram vazios por não estarem na definição; o aviso não impede o envio.
 
 Cada envio tem um identificador LT-AAAAMMDD-HHMMSS-NNN, com data e hora locais e uma sequência que nunca reinicia, nem quando o histórico é limpo. Todos os valores derivam do identificador por uma função pura, em src/lib/lead-data.ts, então ele basta para reconstruir o lead esperado:
 
@@ -37,9 +37,12 @@ Cada envio tem um identificador LT-AAAAMMDD-HHMMSS-NNN, com data e hora locais e
 - e-mail: o identificador em minúsculas em example.com, domínio reservado que não recebe mensagens;
 - telefone: celular com 11 dígitos e DDD 20, que não existe no Brasil, para não tocar para ninguém;
 - CPF: com dígitos verificadores válidos, porque os formulários os conferem;
-- mensagem: Lead de teste seguido do identificador.
+- mensagem: Lead de teste seguido do identificador;
+- anexo: um PDF de uma página, com menos de 1 KB, gerado na hora (src/lib/test-pdf.ts), com o texto Lead de teste e o identificador, no arquivo lead-de-teste-{identificador}.pdf.
 
-As caixas de preferência de contato e de consentimento mapeadas são marcadas em todo envio: o consentimento é marketingConsent[] no formulário de seção e dataPermissions na oferta e no modal de contato, porque os sites exigem essa autorização para enviar. O CPF é fictício, mas, por ter dígitos válidos, pode coincidir com o de uma pessoa real.
+As caixas de preferência de contato e de consentimento mapeadas são marcadas em todo envio: o consentimento é marketingConsent[] no formulário de seção e dataPermissions na oferta e no modal de contato, porque os sites exigem essa autorização para enviar; a preferência de contato é contactPreference[] ou preferencia_contato[], conforme a variação do formulário de seção. O CPF é fictício, mas, por ter dígitos válidos, pode coincidir com o de uma pessoa real.
+
+No campo de arquivo, a extensão anexa o PDF de teste como se o usuário o escolhesse, depois de conferir que o accept do campo aceita PDF. A variação do formulário de seção com anexo obrigatório envia o arquivo ao servidor do site assim que ele é escolhido e grava a chave devolvida no campo oculto attachment, que a validação do site exige; a extensão espera essa chave por até 10 s (ATTACHMENT_UPLOAD_TIMEOUT_MS, em src/lib/form-filler.ts) antes de clicar em enviar e, sem ela, não envia e mostra o erro. Por isso o upload do anexo acontece mesmo quando o envio não chega a ser disparado. O histórico grava o nome do arquivo anexado.
 
 A lista traz os formulários que estão na página quando o popup abre ou quando a lista é atualizada. Formulário que só existe depois de uma ação na página, como o de um modal, precisa estar aberto antes; a extensão não o abre.
 
@@ -223,13 +226,13 @@ Os testes nunca enviam formulários em sites reais nem alcançam o painel ou a A
 
 ## Como adicionar um formulário
 
-Cada formulário suportado tem uma definição em src/lib/form-definitions: como reconhecê-lo na página, quais campos preencher e qual controle dispara o envio. O motor de preenchimento e o popup não mudam. As definições atuais vêm dos sites Autódromo: o formulário de oferta, o formulário de seção, que cobre também a variação das páginas de veículo, com seletor de unidade e caixa de mensagem, e o formulário do modal de contato, aberto pelo botão flutuante de WhatsApp.
+Cada formulário suportado tem uma definição em src/lib/form-definitions: como reconhecê-lo na página, quais campos preencher e qual controle dispara o envio. O motor de preenchimento e o popup não mudam. As definições atuais vêm dos sites Autódromo: o formulário de oferta, o formulário de seção, que cobre também a variação das páginas de veículo, com seletor de unidade e caixa de mensagem, e a variação com anexo obrigatório, e o formulário do modal de contato, aberto pelo botão flutuante de WhatsApp.
 
 1. Abra a página no site de testes e inspecione o formulário no DevTools. Escolha atributos estáveis da marcação para reconhecê-lo, nunca classes geradas.
-2. Crie um arquivo de definição, a partir de src/lib/form-definitions/autodromo-offer.ts, e registre-o em src/lib/form-definitions/index.ts. Um campo é um texto (input ou textarea), uma caixa de marcação ou um seletor (select), cujo seletor CSS inclui a tag; o seletor leva o rótulo que o popup mostra, e as opções são lidas da página; o seletor de unidade leva unit: true, que permite o envio para várias unidades e grava a unidade no histórico. Campo que nem toda variação tem é optional e é preenchido quando existe na página; variação do mesmo formulário estende a definição existente com campos opcionais.
+2. Crie um arquivo de definição, a partir de src/lib/form-definitions/autodromo-offer.ts, e registre-o em src/lib/form-definitions/index.ts. Um campo é um texto (input ou textarea), uma caixa de marcação, um arquivo (input type=file) ou um seletor (select), cujo seletor CSS inclui a tag; o arquivo recebe o PDF de teste e, quando o site faz o upload ao escolher o arquivo, leva em uploadedSelector o campo que o site preenche ao terminar, que a extensão espera antes de enviar; o seletor leva o rótulo que o popup mostra, e as opções são lidas da página; o seletor de unidade leva unit: true, que permite o envio para várias unidades e grava a unidade no histórico. Campo que nem toda variação tem é optional e é preenchido quando existe na página; variação do mesmo formulário estende a definição existente com campos opcionais.
 3. Caixas de marcação, como as de preferência de contato e de consentimento, são campos e são sempre marcadas.
 4. Valor novo de teste entra em LeadData, em src/lib/lead-data.ts, derivado do identificador; nunca é gerado na definição.
-5. Reproduza o formulário em tests/fixtures/lead-forms.html, com o comportamento da página que importa (máscara, validação, campos controlados), e acrescente os casos em src/lib/form-definitions/index.test.ts e, se for um fluxo novo, em tests/e2e/extension.spec.ts.
+5. Reproduza o formulário em tests/fixtures/lead-forms.html (o de anexo, com o upload simulado, em tests/fixtures/attachment-form.html), com o comportamento da página que importa (máscara, validação, campos controlados), e acrescente os casos em src/lib/form-definitions/index.test.ts e, se for um fluxo novo, em tests/e2e/extension.spec.ts.
 6. Confira o reconhecimento e o preenchimento no site de testes. Um envio de teste em um site real cria um lead de verdade no painel desse site.
 
 ## Como depurar falhas
@@ -240,6 +243,7 @@ No envio:
 - Nenhum formulário reconhecido: a página mudou os atributos que a definição usa para reconhecê-la, ou o formulário ainda não está aberto. Compare a marcação com o matches da definição.
 - Campo da definição não encontrado, valor recusado ou caixa que não aceitou a marcação: a página mudou o campo ou a máscara e a validação rejeitaram o valor de teste. Compare o valor que ficou no campo com o de LeadData.
 - Campo exigido: a página marca como obrigatório um campo que a definição não preenche.
+- Anexo não confirmado no prazo: o upload do site falhou ou demorou mais de 10 s; a aba Network do DevTools da página mostra a requisição de upload, e o campo da definição em uploadedSelector deve ser o que o site preenche ao terminar.
 - Envio disparado, mas lead ausente no painel: confira no histórico o identificador e os valores e procure o lead pelo identificador na busca da verificação das integrações. A extensão clica no botão de envio e não acompanha a resposta do site; reCAPTCHA e validações do servidor podem recusar o envio depois do clique.
 
 No painel lateral, uma aba sem acesso mostra Permitir acesso a este site; o navegador guarda o acesso concedido até a extensão ser removida. Um lead que Localizar no painel não acha pode estar fora dos filtros da lista; o detalhe aberto e a mensagem dizem até onde a extensão chegou.

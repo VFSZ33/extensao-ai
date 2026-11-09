@@ -272,13 +272,18 @@ async function openActionPopup(
 
 async function openFixturePage(): Promise<FixtureSession> {
   const extensionPath = resolve(".output/chrome-mv3");
+  const attachmentFixture = await readFile(
+    resolve("tests/fixtures/attachment-form.html"),
+  );
   const fixture = await readFile(resolve("tests/fixtures/lead-forms.html"));
   const server = createServer((request, response) => {
     response.setHeader("content-type", "text/html; charset=utf-8");
     response.end(
       request.url === "/"
         ? fixture
-        : "<!doctype html><title>Sem formulários</title><h1>Sem formulários</h1>",
+        : request.url === "/anexo"
+          ? attachmentFixture
+          : "<!doctype html><title>Sem formulários</title><h1>Sem formulários</h1>",
     );
   });
   await new Promise<void>((done) => {
@@ -815,6 +820,225 @@ test("envia para várias unidades em fila, um lead por unidade, e para quando a 
     ).not.toBeChecked();
     await expect(queue).not.toBeAttached();
     await popup.close();
+  } finally {
+    await close();
+  }
+});
+
+test("anexa o PDF de teste e envia o formulário com anexo, sozinho e na fila de unidades", async () => {
+  const { close, context, extensionId, origin, page, userDataDir } =
+    await openFixturePage();
+
+  try {
+    await page.goto(origin + "/anexo");
+    const submissions = page.getByRole("list", { name: "Envios recebidos" });
+    const uploads = page.getByRole("list", { name: "Anexos recebidos" });
+    const popup = await openActionPopup(
+      context,
+      extensionId,
+      origin + "/anexo",
+      userDataDir,
+    );
+    const forms = popup.page.getByRole("region", {
+      name: "Formulários da página",
+    });
+    const history = popup.page.getByRole("region", {
+      name: "Histórico de envios",
+    });
+    await expect(forms.getByRole("listitem")).toHaveText([
+      /Formulário de seção.*Título da seção - Enviar/,
+      /Formulário de seção.*Anexo com unidade - Enviar/,
+      /Formulário de seção.*Anexo com falha - Enviar/,
+    ]);
+
+    await forms
+      .getByRole("listitem")
+      .filter({ hasText: "Título da seção - Enviar" })
+      .getByRole("button", { name: "Enviar teste" })
+      .click();
+    await confirmSubmission(popup.page);
+    await expect(forms).toContainText(/Envio LT-\d{8}-\d{6}-001 disparado\./);
+    await expect(forms).not.toContainText("que a extensão não preencheu");
+    const firstId =
+      /LT-\d{8}-\d{6}-001/.exec(await forms.innerText())?.[0] ?? "";
+    const firstFile = "lead-de-teste-" + firstId + ".pdf";
+    await expect(uploads.getByRole("listitem")).toHaveCount(1);
+    const upload: { size: number } = JSON.parse(
+      await uploads.getByRole("listitem").first().innerText(),
+    );
+    expect(upload).toEqual({
+      form: "Título da seção - Enviar",
+      header: "%PDF-1.4",
+      name: firstFile,
+      size: expect.any(Number),
+      text: true,
+      type: "application/pdf",
+    });
+    expect(upload.size).toBeLessThan(5242880);
+    await expect(submissions.getByRole("listitem")).toHaveCount(1);
+    expect(
+      JSON.parse(await submissions.getByRole("listitem").first().innerText()),
+    ).toEqual({
+      data: {
+        accountId: "account-fixture",
+        attachment: "documents/" + firstFile,
+        channel: "teste",
+        email: firstId.toLowerCase() + "@example.com",
+        name: "Teste " + firstId,
+        origin_url: "",
+        phone: expect.stringMatching(/^\(20\) 9\d{4}-\d{4}$/),
+        "preferencia_contato[]": ["email", "whatsapp", "telefone"],
+        siteId: "site-fixture",
+        unit: "",
+      },
+      form: "Título da seção - Enviar",
+      valid: true,
+    });
+    await expect(history.getByRole("listitem").first()).toContainText(
+      firstFile,
+    );
+
+    const form = forms
+      .getByRole("listitem")
+      .filter({ hasText: "Anexo com unidade - Enviar" });
+    await form
+      .getByRole("switch", { name: "Enviar para várias unidades" })
+      .click();
+    await form.getByRole("checkbox", { name: "Todas" }).click();
+    await form.getByRole("button", { name: "Enviar para 2 unidades" }).click();
+    await popup.page
+      .getByRole("group", { name: "Enviar 2 formulários reais?" })
+      .getByRole("button", { name: "Confirmar 2 envios" })
+      .click();
+    await expect(
+      forms.getByRole("group", { name: "Fila de envios" }),
+    ).toContainText("Fila concluída: 2 de 2 envios disparados.", {
+      timeout: 15000,
+    });
+    await expect(submissions.getByRole("listitem")).toHaveCount(3);
+    const queued = await Promise.all(
+      (await submissions.getByRole("listitem").all())
+        .slice(1)
+        .map(async (item): Promise<unknown> =>
+          JSON.parse(await item.innerText()),
+        ),
+    );
+    expect(queued).toEqual(
+      ["unit-afogados", "unit-boa-viagem"].map((unit) =>
+        expect.objectContaining({
+          data: expect.objectContaining({
+            attachment: expect.stringMatching(
+              /^documents\/lead-de-teste-LT-\d{8}-\d{6}-00[23]\.pdf$/,
+            ),
+            unit,
+          }),
+          valid: true,
+        }),
+      ),
+    );
+    await expect(uploads.getByRole("listitem")).toHaveCount(3);
+    await expect(history.getByRole("listitem")).toHaveCount(3);
+    await expect(history.getByRole("listitem").first()).toContainText(
+      /lead-de-teste-LT-\d{8}-\d{6}-003\.pdf/,
+    );
+    await popup.close();
+  } finally {
+    await close();
+  }
+});
+
+test("não envia o formulário com anexo quando o site não confirma o anexo no prazo", async () => {
+  const { close, context, extensionId, origin, page, userDataDir } =
+    await openFixturePage();
+
+  try {
+    await page.goto(origin + "/anexo");
+    const submissions = page.getByRole("list", { name: "Envios recebidos" });
+    const popup = await openActionPopup(
+      context,
+      extensionId,
+      origin + "/anexo",
+      userDataDir,
+    );
+    const forms = popup.page.getByRole("region", {
+      name: "Formulários da página",
+    });
+    await forms
+      .getByRole("listitem")
+      .filter({ hasText: "Anexo com falha - Enviar" })
+      .getByRole("button", { name: "Enviar teste" })
+      .click();
+    await confirmSubmission(popup.page);
+    await expect(forms).toContainText(
+      'O site não confirmou o anexo "attachment" em 10 s. O formulário não foi enviado.',
+      { timeout: 15000 },
+    );
+    await expect(
+      page
+        .getByRole("list", { name: "Anexos recebidos" })
+        .getByRole("listitem"),
+    ).toHaveCount(1);
+    await expect(submissions.getByRole("listitem")).toHaveCount(0);
+    await expect(
+      popup.page.getByRole("region", { name: "Histórico de envios" }),
+    ).toContainText("Nenhum envio registrado.");
+    await popup.close();
+  } finally {
+    await close();
+  }
+});
+
+test("envia o formulário com anexo do site de testes pelo painel lateral", async () => {
+  const { close, context, extensionId, page, userDataDir } =
+    await openFixturePage();
+  const testSiteUrl = "https://loja.preview-v2.autodromo.com.br/";
+
+  try {
+    const fixture = await readFile(
+      resolve("tests/fixtures/attachment-form.html"),
+    );
+    await context.route(testSiteUrl + "**", (route) =>
+      route.fulfill({
+        body: fixture,
+        contentType: "text/html; charset=utf-8",
+      }),
+    );
+    await page.goto(testSiteUrl);
+    const submissions = page.getByRole("list", { name: "Envios recebidos" });
+    const sidePanel = await openSidePanel(
+      await openActionPopup(context, extensionId, testSiteUrl, userDataDir),
+      extensionId,
+      userDataDir,
+    );
+    const forms = sidePanel.page.getByRole("region", {
+      name: "Formulários da página",
+    });
+    await forms
+      .getByRole("listitem")
+      .filter({ hasText: "Título da seção - Enviar" })
+      .getByRole("button", { name: "Enviar teste" })
+      .click();
+    await confirmSubmission(sidePanel.page, "test");
+    await expect(forms).toContainText(/Envio LT-\d{8}-\d{6}-001 disparado\./);
+    const submissionId =
+      /LT-\d{8}-\d{6}-001/.exec(await forms.innerText())?.[0] ?? "";
+    await expect(submissions.getByRole("listitem")).toHaveCount(1);
+    expect(
+      JSON.parse(await submissions.getByRole("listitem").first().innerText()),
+    ).toMatchObject({
+      data: {
+        attachment: "documents/lead-de-teste-" + submissionId + ".pdf",
+        name: "Teste " + submissionId,
+      },
+      valid: true,
+    });
+    await expect(
+      sidePanel.page
+        .getByRole("region", { name: "Histórico de envios" })
+        .getByRole("listitem")
+        .first(),
+    ).toContainText("lead-de-teste-" + submissionId + ".pdf");
+    await sidePanel.close();
   } finally {
     await close();
   }

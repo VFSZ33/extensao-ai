@@ -2,7 +2,7 @@ import type {
   FormDefinition,
   FormFieldDefinition,
 } from "@/lib/form-definition";
-import type { LeadData } from "@/lib/lead-data";
+import type { LeadAttachment, LeadData } from "@/lib/lead-data";
 
 import {
   type FilledValues,
@@ -18,6 +18,10 @@ type EmptyField = { element: FieldElement; name: string };
 type FieldElement = HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement;
 
 type ResolvedField =
+  | ({ element: HTMLInputElement; uploaded?: HTMLInputElement } & Extract<
+      FormFieldDefinition,
+      { kind: "file" }
+    >)
   | ({ element: HTMLInputElement } & Extract<
       FormFieldDefinition,
       { kind: "checkbox" }
@@ -31,6 +35,9 @@ type ResolvedField =
       { kind: "select" }
     >);
 
+export const ATTACHMENT_UPLOAD_TIMEOUT_MS = 10000;
+
+const ATTACHMENT_UPLOAD_POLL_MS = 250;
 const HEADING_SELECTOR = "h1, h2, h3, h4, h5, h6";
 const NON_FILLABLE_TYPES = ["button", "hidden", "image", "reset", "submit"];
 const PAGE_UPDATE_WAIT_MS = 250;
@@ -70,10 +77,19 @@ export async function fillAndSubmitForm(
   }
 
   checkSelections(fields, selections);
+  checkAttachments(fields, lead.attachment);
+
+  const previousUploads = new Map<HTMLInputElement, string>();
 
   for (const field of fields) {
     if (field.kind === "text") {
       setFieldValue(field.element, lead[field.source]);
+    } else if (field.kind === "file") {
+      if (field.uploaded) {
+        previousUploads.set(field.uploaded, field.uploaded.value);
+      }
+
+      attachFile(field.element, lead.attachment);
     } else if (field.kind === "select") {
       const selection = selections[field.key];
 
@@ -86,6 +102,7 @@ export async function fillAndSubmitForm(
   }
 
   await waitForPageUpdate();
+  await waitForUploads(fields, previousUploads);
 
   const values = readFilledValues(fields, lead, selections);
   const emptyFields = listEmptyUnmappedFields(form, fields);
@@ -166,6 +183,66 @@ export async function runPageCommand(
   }
 }
 
+function acceptsAttachment(
+  accept: string,
+  attachment: LeadAttachment,
+): boolean {
+  const name = attachment.name.toLowerCase();
+  const tokens = accept
+    .split(",")
+    .map((token) => token.trim().toLowerCase())
+    .filter(Boolean);
+
+  return (
+    tokens.length === 0 ||
+    tokens.some((token) =>
+      token.startsWith(".")
+        ? name.endsWith(token)
+        : token.endsWith("/*")
+          ? attachment.type.startsWith(token.slice(0, -1))
+          : token === attachment.type,
+    )
+  );
+}
+
+function attachFile(
+  element: HTMLInputElement,
+  attachment: LeadAttachment,
+): void {
+  const setFiles = Object.getOwnPropertyDescriptor(
+    HTMLInputElement.prototype,
+    "files",
+  )?.set;
+
+  if (!setFiles || typeof DataTransfer !== "function") {
+    throw new Error("Não foi possível anexar o arquivo nesta página.");
+  }
+
+  const transfer = new DataTransfer();
+  transfer.items.add(
+    new File([attachment.content], attachment.name, { type: attachment.type }),
+  );
+  dispatchEdit(element, () => {
+    setFiles.call(element, transfer.files);
+  });
+}
+
+function checkAttachments(
+  fields: ResolvedField[],
+  attachment: LeadAttachment,
+): void {
+  for (const field of fields) {
+    if (
+      field.kind === "file" &&
+      !acceptsAttachment(field.element.accept, attachment)
+    ) {
+      throw new Error(
+        'O campo "' + field.key + '" não aceita o arquivo de teste, um PDF.',
+      );
+    }
+  }
+}
+
 function checkSelections(
   fields: ResolvedField[],
   selections: Record<string, string>,
@@ -215,6 +292,16 @@ function describeForm(form: HTMLFormElement): string {
   }
 
   return "";
+}
+
+function dispatchEdit(element: FieldElement, apply: () => void): void {
+  element.dispatchEvent(new FocusEvent("focus"));
+  element.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+  apply();
+  element.dispatchEvent(new Event("input", { bubbles: true }));
+  element.dispatchEvent(new Event("change", { bubbles: true }));
+  element.dispatchEvent(new FocusEvent("blur"));
+  element.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
 }
 
 function isFilled(element: FieldElement, form: HTMLFormElement): boolean {
@@ -320,6 +407,19 @@ function readFilledValues(
       continue;
     }
 
+    if (field.kind === "file") {
+      const file = field.element.files?.item(0);
+
+      if (file?.name !== lead.attachment.name) {
+        throw new Error(
+          'O campo "' + field.key + '" não aceitou o arquivo de teste.',
+        );
+      }
+
+      values[field.key] = file.name;
+      continue;
+    }
+
     if (field.kind === "select") {
       const selection = selections[field.key];
 
@@ -371,6 +471,24 @@ function resolveFields(
       if (element instanceof HTMLInputElement && element.type === "checkbox") {
         return [{ ...field, element }];
       }
+    } else if (field.kind === "file") {
+      if (element instanceof HTMLInputElement && element.type === "file") {
+        if (field.uploadedSelector === undefined) {
+          return [{ ...field, element }];
+        }
+
+        const uploaded = form.querySelector(field.uploadedSelector);
+
+        if (uploaded instanceof HTMLInputElement) {
+          return [{ ...field, element, uploaded }];
+        }
+
+        throw new Error(
+          'O campo que recebe o anexo "' +
+            field.key +
+            '" não foi encontrado no formulário.',
+        );
+      }
     } else if (field.kind === "select") {
       if (element instanceof HTMLSelectElement) {
         return [{ ...field, element }];
@@ -405,17 +523,52 @@ function setFieldValue(element: FieldElement, value: string): void {
     throw new Error("Não foi possível preencher os campos desta página.");
   }
 
-  element.dispatchEvent(new FocusEvent("focus"));
-  element.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
-  setValue.call(element, value);
-  element.dispatchEvent(new Event("input", { bubbles: true }));
-  element.dispatchEvent(new Event("change", { bubbles: true }));
-  element.dispatchEvent(new FocusEvent("blur"));
-  element.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+  dispatchEdit(element, () => {
+    setValue.call(element, value);
+  });
+}
+
+function wait(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, milliseconds);
+  });
 }
 
 function waitForPageUpdate(): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, PAGE_UPDATE_WAIT_MS);
-  });
+  return wait(PAGE_UPDATE_WAIT_MS);
+}
+
+async function waitForUploads(
+  fields: ResolvedField[],
+  previousUploads: Map<HTMLInputElement, string>,
+): Promise<void> {
+  let waited = 0;
+
+  for (const field of fields) {
+    if (field.kind !== "file" || !field.uploaded) {
+      continue;
+    }
+
+    const { element, key, uploaded } = field;
+    const isUploaded = () => {
+      const value = uploaded.value.trim();
+
+      return value !== "" && value !== previousUploads.get(uploaded);
+    };
+
+    while (!isUploaded() && element.files?.length !== 0) {
+      if (waited >= ATTACHMENT_UPLOAD_TIMEOUT_MS) {
+        throw new Error(
+          'O site não confirmou o anexo "' +
+            key +
+            '" em ' +
+            String(ATTACHMENT_UPLOAD_TIMEOUT_MS / 1000) +
+            " s. O formulário não foi enviado.",
+        );
+      }
+
+      await wait(ATTACHMENT_UPLOAD_POLL_MS);
+      waited += ATTACHMENT_UPLOAD_POLL_MS;
+    }
+  }
 }

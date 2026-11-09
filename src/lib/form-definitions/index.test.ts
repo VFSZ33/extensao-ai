@@ -1,11 +1,16 @@
+import { stubFileTransfer } from "@tests/file-transfer";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { formDefinitions } from "@/lib/form-definitions";
 import { detectForms, runPageCommand } from "@/lib/form-filler";
 import { createLeadData } from "@/lib/lead-data";
 
+const attachmentFixture = new DOMParser().parseFromString(
+  readFileSync(resolve("tests/fixtures/attachment-form.html"), "utf8"),
+  "text/html",
+);
 const fixture = new DOMParser().parseFromString(
   readFileSync(resolve("tests/fixtures/lead-forms.html"), "utf8"),
   "text/html",
@@ -37,6 +42,32 @@ function captureSubmission(): { current?: Record<string, unknown> } {
   return submission;
 }
 
+function confirmUploads(): void {
+  document.addEventListener(
+    "change",
+    (event) => {
+      const input = event.target;
+
+      if (!(input instanceof HTMLInputElement)) {
+        return;
+      }
+
+      const file = input.files?.item(0);
+      const uploaded = input.form?.querySelector(
+        'input[type="hidden"][name="attachment"]',
+      );
+
+      if (file && uploaded instanceof HTMLInputElement) {
+        uploaded.value = "";
+        setTimeout(() => {
+          uploaded.value = "documents/" + file.name;
+        }, 500);
+      }
+    },
+    { signal: listeners.signal },
+  );
+}
+
 function openContactModal(): void {
   const template = document.getElementById("contact-modal");
 
@@ -55,6 +86,7 @@ describe("Definições de formulário", () => {
 
   afterEach(() => {
     listeners.abort();
+    vi.unstubAllGlobals();
   });
 
   it("reconhece cada formulário suportado e ignora os demais", () => {
@@ -401,6 +433,65 @@ describe("Definições de formulário", () => {
       ok: false,
     });
     expect(submission.current).toBeUndefined();
+  });
+
+  it("reconhece como formulário de seção a variação com anexo", () => {
+    document.body.innerHTML = attachmentFixture.body.innerHTML;
+    expect(
+      detectForms(document, formDefinitions).map(
+        ({ definitionId, label, selects }) => [
+          definitionId,
+          label,
+          selects.length,
+        ],
+      ),
+    ).toEqual([
+      ["autodromo-section", "Título da seção - Enviar", 0],
+      ["autodromo-section", "Anexo com unidade - Enviar", 1],
+      ["autodromo-section", "Anexo com falha - Enviar", 0],
+    ]);
+  });
+
+  it("anexa o PDF de teste ao formulário de seção com anexo e o envia", async () => {
+    document.body.innerHTML = attachmentFixture.body.innerHTML;
+    stubFileTransfer();
+    confirmUploads();
+    const submission = captureSubmission();
+    await expect(
+      runPageCommand(
+        {
+          definitionId: "autodromo-section",
+          index: 0,
+          lead,
+          type: "submit-form",
+        },
+        document,
+        formDefinitions,
+      ),
+    ).resolves.toEqual({
+      ok: true,
+      result: {
+        unfilledFields: [],
+        values: {
+          attachment: "lead-de-teste-LT-20261007-080509-012.pdf",
+          email: lead.email,
+          name: lead.name,
+          phone: lead.phone,
+          "preferenciaContato.email": true,
+          "preferenciaContato.telefone": true,
+          "preferenciaContato.whatsapp": true,
+        },
+      },
+    });
+    expect(submission.current).toMatchObject({
+      attachment: "documents/lead-de-teste-LT-20261007-080509-012.pdf",
+      email: lead.email,
+      name: lead.name,
+      phone: lead.phone,
+      "preferencia_contato[]": ["email", "whatsapp", "telefone"],
+      siteId: "site-fixture",
+      unit: "",
+    });
   });
 
   it("recusa o envio quando a definição não corresponde ao formulário", async () => {

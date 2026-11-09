@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Formulário com anexo de teste</title>
+  </head>
+  <body>
+    <main>
+      <section>
+        <form
+          novalidate
+          data-fixture="attachment"
+          data-gtag-action="Formulário Enviado"
+          data-gtag-category="Formulário"
+          data-gtag-label="Título da seção - Enviar"
+        >
+          <input type="hidden" name="origin_url" value="" />
+          <input type="hidden" name="siteId" value="site-fixture" />
+          <input type="hidden" name="accountId" value="account-fixture" />
+          <input type="hidden" name="channel" value="teste" />
+          <span>Estou interessado</span>
+          <label>
+            Nome
+            <input
+              name="name"
+              placeholder="Insira o Nome"
+              id="form-field-name-09e9d99f"
+              required
+            />
+          </label>
+          <label>
+            E-mail
+            <input
+              name="email"
+              placeholder="Insira o E-mail"
+              id="form-field-email-de3f0bc2"
+              required
+            />
+          </label>
+          <label>
+            Telefone
+            <input
+              name="phone"
+              placeholder="Ex: (00) 0000-0000"
+              id="form-field-phone-72928ca7"
+              data-mask="phone"
+              required
+              value=""
+            />
+          </label>
+          <input type="hidden" name="unit" value="" />
+          <div data-upload-field>
+            <label>Anexar documento *</label>
+            <input
+              accept=".pdf,.jpg,.jpeg,.png"
+              hidden
+              id="attachment"
+              type="file"
+            />
+            <p>Arraste um arquivo ou <strong>clique para selecionar</strong></p>
+            <span>PDF, JPG, JPEG, PNG • máx. 5MB</span>
+            <p data-upload-status></p>
+            <input type="hidden" name="attachment" value="" />
+          </div>
+          <fieldset>
+            <label>Quero receber contato por:</label>
+            <label>
+              <input
+                type="checkbox"
+                name="preferencia_contato[]"
+                value="email"
+              />
+              E-mail
+            </label>
+            <label>
+              <input
+                type="checkbox"
+                name="preferencia_contato[]"
+                value="whatsapp"
+              />
+              Whatsapp
+            </label>
+            <label>
+              <input
+                type="checkbox"
+                name="preferencia_contato[]"
+                value="telefone"
+              />
+              Telefone
+            </label>
+          </fieldset>
+          <button aria-label="Enviar" type="submit">Enviar</button>
+          <p>Este site é protegido pelo reCAPTCHA</p>
+        </form>
+      </section>
+      <section>
+        <form
+          novalidate
+          data-fixture="attachment"
+          data-gtag-action="Formulário Enviado"
+          data-gtag-category="Formulário"
+          data-gtag-label="Anexo com unidade - Enviar"
+        >
+          <input type="hidden" name="origin_url" value="" />
+          <input type="hidden" name="siteId" value="site-fixture" />
+          <input type="hidden" name="accountId" value="account-fixture" />
+          <input type="hidden" name="channel" value="teste" />
+          <input name="name" required />
+          <input name="email" required />
+          <input data-mask="phone" name="phone" required value="" />
+          <label>
+            Unidade
+            <select name="unit">
+              <option value="">Selecione a unidade</option>
+              <option value="unit-afogados">Unidade Afogados</option>
+              <option value="unit-boa-viagem">Unidade Boa Viagem</option>
+            </select>
+          </label>
+          <div data-upload-field>
+            <label>Anexar documento *</label>
+            <input accept=".pdf" hidden id="attachment" type="file" />
+            <p data-upload-status></p>
+            <input type="hidden" name="attachment" value="" />
+          </div>
+          <button aria-label="Enviar" type="submit">Enviar</button>
+        </form>
+      </section>
+      <section>
+        <form
+          novalidate
+          data-fixture="attachment"
+          data-gtag-action="Formulário Enviado"
+          data-gtag-category="Formulário"
+          data-gtag-label="Anexo com falha - Enviar"
+          data-upload="fail"
+        >
+          <input type="hidden" name="origin_url" value="" />
+          <input type="hidden" name="siteId" value="site-fixture" />
+          <input name="name" required />
+          <input name="email" required />
+          <input data-mask="phone" name="phone" required value="" />
+          <div data-upload-field>
+            <label>Anexar documento *</label>
+            <input
+              accept=".pdf,.jpg,.jpeg,.png"
+              hidden
+              id="attachment"
+              type="file"
+            />
+            <p data-upload-status></p>
+            <input type="hidden" name="attachment" value="" />
+          </div>
+          <button aria-label="Enviar" type="submit">Enviar</button>
+        </form>
+      </section>
+      <ol aria-label="Anexos recebidos" id="uploads"></ol>
+      <ol aria-label="Envios recebidos" id="submissions"></ol>
+    </main>
+    <script>
+      const MAX_UPLOAD_BYTES = 5242880;
+      const UPLOAD_DELAY_MS = 750;
+      const nativeValue = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      );
+
+      function maskPhone(input) {
+        input.addEventListener("input", () => {
+          const digits = input.value.replace(/\D/g, "").slice(0, 11);
+
+          input.value =
+            digits.length > 10
+              ? digits.replace(/^(\d{2})(\d{5})(\d{0,4})/, "($1) $2-$3")
+              : digits.replace(/^(\d{2})(\d{4})(\d{0,4})/, "($1) $2-$3");
+        });
+      }
+
+      function watchUpload(field) {
+        const form = field.closest("form");
+        const input = field.querySelector('input[type="file"]');
+        const key = field.querySelector('input[type="hidden"]');
+        const status = field.querySelector("[data-upload-status]");
+        let generation = 0;
+
+        input.addEventListener("change", async () => {
+          const file = input.files?.[0];
+          const accepted = input.accept
+            .split(",")
+            .map((extension) => extension.trim().toLowerCase());
+          const current = ++generation;
+
+          nativeValue.set.call(key, "");
+
+          if (!file) {
+            status.textContent = "";
+            return;
+          }
+
+          if (
+            !accepted.some((extension) =>
+              file.name.toLowerCase().endsWith(extension),
+            ) ||
+            file.size > MAX_UPLOAD_BYTES
+          ) {
+            input.value = "";
+            status.textContent = "Arquivo recusado.";
+            return;
+          }
+
+          status.textContent = "Enviando...";
+
+          const text = await file.text();
+          const item = document.createElement("li");
+          item.textContent = JSON.stringify({
+            form: form.dataset.gtagLabel,
+            header: text.slice(0, 8),
+            name: file.name,
+            size: file.size,
+            text: text.includes("(Lead de teste) Tj"),
+            type: file.type,
+          });
+          document.getElementById("uploads").append(item);
+
+          setTimeout(() => {
+            if (current !== generation) {
+              return;
+            }
+
+            if (form.dataset.upload === "fail") {
+              status.textContent = "Erro ao enviar. Tente novamente.";
+              return;
+            }
+
+            nativeValue.set.call(key, "documents/" + file.name);
+            status.textContent = "✓ Enviado";
+          }, UPLOAD_DELAY_MS);
+        });
+      }
+
+      document.querySelectorAll("[data-mask]").forEach(maskPhone);
+      document.querySelectorAll("[data-upload-field]").forEach(watchUpload);
+
+      document.addEventListener("submit", (event) => {
+        event.preventDefault();
+
+        const form = event.target;
+        const formData = new FormData(form);
+        const data = {};
+
+        for (const key of new Set(formData.keys())) {
+          data[key] = key.endsWith("[]")
+            ? formData.getAll(key)
+            : formData.get(key);
+        }
+
+        const item = document.createElement("li");
+        item.textContent = JSON.stringify({
+          data,
+          form: form.dataset.gtagLabel,
+          valid:
+            Boolean(data.name.trim()) &&
+            /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email) &&
+            /^\d{10,11}$/.test(data.phone.replace(/\D/g, "")) &&
+            data.attachment.startsWith("documents/"),
+        });
+        document.getElementById("submissions").append(item);
+      });
+    </script>
+  </body>
+</html>

@@ -1,4 +1,4 @@
-import type { LeadData } from "@/lib/lead-data";
+import type { LeadTextSource } from "@/lib/lead-data";
 
 export type FormDefinition = {
   fields: FormFieldDefinition[];
@@ -9,8 +9,9 @@ export type FormDefinition = {
 };
 
 export type FormFieldDefinition = (
-  | { comparison: "digits" | "exact"; kind: "text"; source: keyof LeadData }
+  | { comparison: "digits" | "exact"; kind: "text"; source: LeadTextSource }
   | { kind: "checkbox" }
+  | { kind: "file"; uploadedSelector?: string }
   | { kind: "select"; label: string; unit?: boolean }
 ) & {
   key: string;

@@ -4,6 +4,12 @@ As mudanças de cada entrega do Scanner de Leads, da mais recente para a mais an
 
 ## Não lançado
 
+### Formulário com anexo
+
+- Novo tipo de campo arquivo nas definições: a extensão anexa um PDF de teste gerado na hora, com o texto Lead de teste e o identificador do envio, no arquivo lead-de-teste-{identificador}.pdf, depois de conferir que o accept do campo aceita PDF.
+- Quando o site envia o anexo ao escolhê-lo, a extensão espera o campo que recebe a chave do upload por até 10 s antes de enviar; sem ela, não envia e mostra o erro.
+- O formulário de seção reconhece a variação com anexo obrigatório do site de testes e marca as caixas preferencia_contato[]; o histórico grava o nome do arquivo anexado, e os registros antigos continuam válidos.
+
 ### Envio para várias unidades
 
 - No formulário com seletor de unidade (marcado com unit: true na definição), Enviar para várias unidades troca o seletor por caixas com as opções válidas da página e Todas; uma única confirmação mostra o site, o formulário, o aviso do ambiente e as unidades escolhidas.

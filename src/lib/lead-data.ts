@@ -1,10 +1,21 @@
+import { createTextPdf } from "@/lib/test-pdf";
+
+export type LeadAttachment = {
+  content: string;
+  name: string;
+  type: "application/pdf";
+};
+
 export type LeadData = {
+  attachment: LeadAttachment;
   cpf: string;
   email: string;
   message: string;
   name: string;
   phone: string;
 };
+
+export type LeadTextSource = Exclude<keyof LeadData, "attachment">;
 
 const SUBMISSION_ID_FORMAT = "LT-\\d{8}-\\d{6}-\\d{3,}";
 const SUBMISSION_ID_PATTERN = new RegExp("^" + SUBMISSION_ID_FORMAT + "$");
@@ -28,6 +39,11 @@ export function createLeadData(submissionId: string): LeadData {
   const phoneSuffix = Array.from({ length: 7 }, () => nextDigit(10));
 
   return {
+    attachment: {
+      content: createTextPdf(["Lead de teste", submissionId]),
+      name: "lead-de-teste-" + submissionId + ".pdf",
+      type: "application/pdf",
+    },
     cpf: [...cpfBase, firstCheckDigit, secondCheckDigit].join(""),
     email: submissionId.toLowerCase() + "@example.com",
     message: "Lead de teste " + submissionId + ".",

@@ -3,6 +3,13 @@ import type { FormDefinition } from "@/lib/form-definition";
 export const autodromoSectionForm: FormDefinition = {
   fields: [
     {
+      key: "attachment",
+      kind: "file",
+      optional: true,
+      selector: 'input[type="file"][id="attachment"]',
+      uploadedSelector: 'input[type="hidden"][name="attachment"]',
+    },
+    {
       key: "contactPreference.email",
       kind: "checkbox",
       optional: true,
@@ -63,6 +70,24 @@ export const autodromoSectionForm: FormDefinition = {
       optional: true,
       selector: 'input[name="phone"]',
       source: "phone",
+    },
+    {
+      key: "preferenciaContato.email",
+      kind: "checkbox",
+      optional: true,
+      selector: 'input[name="preferencia_contato[]"][value="email"]',
+    },
+    {
+      key: "preferenciaContato.telefone",
+      kind: "checkbox",
+      optional: true,
+      selector: 'input[name="preferencia_contato[]"][value="telefone"]',
+    },
+    {
+      key: "preferenciaContato.whatsapp",
+      kind: "checkbox",
+      optional: true,
+      selector: 'input[name="preferencia_contato[]"][value="whatsapp"]',
     },
     {
       key: "unit",

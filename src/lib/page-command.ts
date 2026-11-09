@@ -1,4 +1,4 @@
-import type { LeadData } from "@/lib/lead-data";
+import type { LeadAttachment, LeadData } from "@/lib/lead-data";
 
 import { isRecord } from "@/lib/is-record";
 
@@ -143,9 +143,20 @@ function isFormSelect(value: unknown): value is FormSelect {
   );
 }
 
+function isLeadAttachment(value: unknown): value is LeadAttachment {
+  return (
+    isRecord(value) &&
+    typeof value.content === "string" &&
+    typeof value.name === "string" &&
+    value.type === "application/pdf"
+  );
+}
+
 function isLeadData(value: unknown): value is LeadData {
   return (
-    isRecord(value) && LEAD_KEYS.every((key) => typeof value[key] === "string")
+    isRecord(value) &&
+    isLeadAttachment(value.attachment) &&
+    LEAD_KEYS.every((key) => typeof value[key] === "string")
   );
 }
 

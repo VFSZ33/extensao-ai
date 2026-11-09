@@ -115,7 +115,10 @@ describe("Popup da extensão", () => {
               "lead" in command
                 ? {
                     ok: true,
-                    result: { unfilledFields: [], values: command.lead },
+                    result: {
+                      unfilledFields: [],
+                      values: toFilledValues(command.lead),
+                    },
                   }
                 : {
                     ok: true,
@@ -331,7 +334,10 @@ function mockScripts(granted: Set<string>) {
                   "lead" in command
                 ? {
                     ok: true,
-                    result: { unfilledFields: [], values: command.lead },
+                    result: {
+                      unfilledFields: [],
+                      values: toFilledValues(command.lead),
+                    },
                   }
                 : { ok: true, result: SITE_FORMS },
         },
@@ -344,6 +350,14 @@ function mockTabs(tabs: { active: object; panel?: object }) {
   vi.spyOn(query, "query").mockImplementation(async (filter) =>
     "url" in filter ? (tabs.panel ? [tabs.panel] : []) : [tabs.active],
   );
+}
+
+function toFilledValues(lead: unknown): unknown {
+  return typeof lead === "object" && lead !== null
+    ? Object.fromEntries(
+        Object.entries(lead).filter(([key]) => key !== "attachment"),
+      )
+    : lead;
 }
 
 describe("Painel lateral", () => {

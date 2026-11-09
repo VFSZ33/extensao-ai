@@ -6,6 +6,7 @@ import {
   findSubmissionId,
   isSubmissionId,
 } from "@/lib/lead-data";
+import { createTextPdf } from "@/lib/test-pdf";
 
 function hasValidCpfCheckDigits(cpf: string): boolean {
   const digits = [...cpf].map(Number);
@@ -45,6 +46,11 @@ describe("Dados do lead de teste", () => {
     const lead = createLeadData("LT-20261007-080509-012");
     expect(createLeadData("LT-20261007-080509-012")).toEqual(lead);
     expect(lead).toEqual({
+      attachment: {
+        content: createTextPdf(["Lead de teste", "LT-20261007-080509-012"]),
+        name: "lead-de-teste-LT-20261007-080509-012.pdf",
+        type: "application/pdf",
+      },
       cpf: expect.stringMatching(/^\d{11}$/),
       email: "lt-20261007-080509-012@example.com",
       message: "Lead de teste LT-20261007-080509-012.",
@@ -56,6 +62,8 @@ describe("Dados do lead de teste", () => {
   it("gera valores diferentes para identificadores diferentes", () => {
     const first = createLeadData("LT-20261007-080509-012");
     const second = createLeadData("LT-20261007-080509-013");
+    expect(second.attachment.content).not.toBe(first.attachment.content);
+    expect(second.attachment.name).not.toBe(first.attachment.name);
     expect(second.cpf).not.toBe(first.cpf);
     expect(second.email).not.toBe(first.email);
     expect(second.name).not.toBe(first.name);
@@ -86,6 +94,9 @@ describe("Dados do lead de teste", () => {
     expect(findSubmissionId(lead.name)).toBe("LT-20261007-080509-012");
     expect(findSubmissionId(lead.email)).toBe("LT-20261007-080509-012");
     expect(findSubmissionId(lead.message)).toBe("LT-20261007-080509-012");
+    expect(findSubmissionId(lead.attachment.name)).toBe(
+      "LT-20261007-080509-012",
+    );
     expect(findSubmissionId("LT-20260131-235959-1234")).toBe(
       "LT-20260131-235959-1234",
     );
