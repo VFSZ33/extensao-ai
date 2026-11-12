@@ -435,7 +435,9 @@ export function PageForms({ onSubmitted, target }: PageFormsProps) {
                     {chosenUnits && (
                       <p>
                         A fila para se a página mudar ou um envio falhar, e pode
-                        ser cancelada entre um envio e outro.
+                        ser cancelada entre um envio e outro. Se o site levar a
+                        outra página dele depois de um envio, a fila volta ao
+                        endereço do formulário antes do próximo.
                       </p>
                     )}
                     {site.kind === "test" ? (

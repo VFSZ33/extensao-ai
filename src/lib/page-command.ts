@@ -4,6 +4,8 @@ import { isRecord } from "@/lib/is-record";
 
 export type FilledValues = Record<string, boolean | SelectOption | string>;
 
+export type FormReturn = (typeof FORM_RETURNS)[number];
+
 export type FormSelect = {
   key: string;
   label: string;
@@ -19,6 +21,7 @@ export type PageCommand =
       selections: Record<string, string>;
       type: "submit-form";
     }
+  | { definitionId: string; index: number; type: "return-to-form" }
   | { type: "detect-forms" };
 
 export type PageResponse<Result> =
@@ -29,6 +32,7 @@ export type RecognizedForm = {
   definitionName: string;
   index: number;
   label: string;
+  marks: Record<string, string>;
   selects: FormSelect[];
 };
 
@@ -39,6 +43,17 @@ export type SubmissionResult = {
   values: FilledValues;
 };
 
+export const FORM_RETURNS = [
+  "ambiguous-button",
+  "ambiguous-form",
+  "busy",
+  "form-present",
+  "missing-button",
+  "missing-region",
+  "returned",
+  "timeout",
+  "unknown-form",
+] as const;
 export const PAGE_COMMAND_KEY = "leadIntegrationTesterPageCommand";
 
 const LEAD_KEYS = ["cpf", "email", "message", "name", "phone"] as const;
@@ -55,6 +70,10 @@ export function isFilledValues(value: unknown): value is FilledValues {
   );
 }
 
+export function isFormReturn(value: unknown): value is FormReturn {
+  return FORM_RETURNS.some((formReturn) => formReturn === value);
+}
+
 export function isRecognizedForms(value: unknown): value is RecognizedForm[] {
   return (
     Array.isArray(value) &&
@@ -65,6 +84,7 @@ export function isRecognizedForms(value: unknown): value is RecognizedForm[] {
         typeof form.definitionName === "string" &&
         Number.isInteger(form.index) &&
         typeof form.label === "string" &&
+        isStringRecord(form.marks) &&
         Array.isArray(form.selects) &&
         form.selects.every(isFormSelect),
     )
@@ -100,12 +120,21 @@ export function parsePageCommand(value: unknown): PageCommand | undefined {
   const { definitionId, index, lead, selections = {} } = value;
 
   if (
-    value.type !== "submit-form" ||
     typeof definitionId !== "string" ||
     typeof index !== "number" ||
-    !Number.isInteger(index) ||
+    !Number.isInteger(index)
+  ) {
+    return undefined;
+  }
+
+  if (value.type === "return-to-form") {
+    return { definitionId, index, type: "return-to-form" };
+  }
+
+  if (
+    value.type !== "submit-form" ||
     !isLeadData(lead) ||
-    !isSelections(selections)
+    !isStringRecord(selections)
   ) {
     return undefined;
   }
@@ -160,7 +189,7 @@ function isLeadData(value: unknown): value is LeadData {
   );
 }
 
-function isSelections(value: unknown): value is Record<string, string> {
+function isStringRecord(value: unknown): value is Record<string, string> {
   return (
     isRecord(value) &&
     Object.values(value).every((entry) => typeof entry === "string")

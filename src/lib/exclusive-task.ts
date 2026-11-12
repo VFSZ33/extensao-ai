@@ -1,3 +1,4 @@
+export const PAGE_COMMAND_LOCK = "scanner-de-leads:page-command";
 export const PANEL_FOCUS_LOCK = "scanner-de-leads:panel-focus";
 export const PANEL_QUERY_LOCK = "scanner-de-leads:panel-query";
 

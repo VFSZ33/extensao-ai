@@ -99,6 +99,17 @@ export const autodromoSectionForm: FormDefinition = {
     },
   ],
   id: "autodromo-section",
+  marks: [
+    "accountId",
+    "category",
+    "channel",
+    "content_entry_id",
+    "moduleId",
+    "page_content_entry_id",
+    "product",
+    "siteId",
+    "teamId",
+  ],
   matches: (form) =>
     form.querySelector('input[type="hidden"][name="origin_url"]') !== null &&
     form.querySelector('input[type="hidden"][name="siteId"]') !== null,

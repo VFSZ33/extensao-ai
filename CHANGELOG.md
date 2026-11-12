@@ -4,6 +4,21 @@ As mudanças de cada entrega do Scanner de Leads, da mais recente para a mais an
 
 ## Não lançado
 
+### Fila pelo redirecionamento para a página de obrigado
+
+- Na fila de várias unidades, quando o site leva a aba a outra página do mesmo site depois do envio (a página de obrigado com redirecionamento configurado), a extensão leva a mesma aba de volta ao endereço exato do formulário, com a query, espera até 15 s o carregamento, encontra o mesmo formulário e segue para a próxima unidade; recarga e mudança só da âncora seguem o mesmo caminho. O envio individual não muda.
+- Depois que o site termina o envio, a fila espera 1 s antes de conferir o formulário, para ver o redirecionamento que o site começa nesse momento antes do próximo envio.
+- A fila para, mostra as pendentes e diz o motivo quando a página vai para outro site, a aba é fechada ou deixa de ser a ativa, a página não carrega no prazo, o formulário não volta ou volta em outra posição ou repetido, ou a extensão perde o acesso à página; neste caso, a mensagem orienta a liberar o acesso ao site no painel lateral.
+- Todo comando da extensão na página tem prazo de 30 s e termina quando a aba muda de endereço ou é fechada, e o cancelamento da fila interrompe as esperas; sem isso, com o cache de voltar e avançar do Chrome, a fila travava no documento congelado depois do redirecionamento.
+- Os comandos da extensão numa aba vão um de cada vez, inclusive entre o popup e o painel lateral, para que a leitura da lista feita pelo painel lateral depois da navegação não se misture com um envio da fila.
+
+### Fila pela tela de sucesso
+
+- Na fila de várias unidades, quando o site troca o formulário enviado pela tela de sucesso com Voltar para o formulário, a extensão clica nesse botão, procurado só na área onde o formulário estava, espera até 5 s o mesmo formulário voltar e segue para a próxima unidade; o envio individual não muda.
+- Antes do envio seguinte, a fila espera até 15 s o site terminar o envio anterior (formulário com o botão de envio desabilitado), em vez de falhar com o botão desabilitado enquanto o site ainda pede o reCAPTCHA e envia o lead.
+- O mesmo formulário depois de remontado é reconhecido pela definição, posição, rótulo e pelas marcas da definição (campos ocultos como siteId, accountId e channel no formulário de seção), não pelo elemento.
+- Sem o fim do envio anterior no prazo, sem o botão, com mais de um botão ou formulário, sem o formulário no prazo, com outro formulário ou com mudança de endereço, documento ou aba, a fila para, mostra as pendentes e diz o motivo.
+
 ### Formulário com anexo
 
 - Novo tipo de campo arquivo nas definições: a extensão anexa um PDF de teste gerado na hora, com o texto Lead de teste e o identificador do envio, no arquivo lead-de-teste-{identificador}.pdf, depois de conferir que o accept do campo aceita PDF.

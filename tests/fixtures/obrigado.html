@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Obrigado</title>
+  </head>
+  <body>
+    <main>
+      <h1>Obrigado!</h1>
+      <p>Recebemos o seu contato.</p>
+      <ol aria-label="Envios recebidos" id="submissions"></ol>
+    </main>
+    <script>
+      const SUBMISSIONS_KEY = "submissions";
+
+      for (const submission of JSON.parse(
+        sessionStorage.getItem(SUBMISSIONS_KEY) ?? "[]",
+      )) {
+        const item = document.createElement("li");
+        item.textContent = submission;
+        document.getElementById("submissions").append(item);
+      }
+    </script>
+  </body>
+</html>

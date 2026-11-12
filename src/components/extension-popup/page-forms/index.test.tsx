@@ -17,6 +17,7 @@ const forms = [
     definitionName: "Formulário de oferta",
     index: 0,
     label: "oferta - GEELY EX5 PRO - Enviar",
+    marks: {},
     selects: [],
   },
   {
@@ -24,6 +25,7 @@ const forms = [
     definitionName: "Formulário de seção",
     index: 2,
     label: "",
+    marks: {},
     selects: [],
   },
 ];
@@ -608,7 +610,7 @@ describe("Envio para várias unidades", () => {
     });
     expect(confirmation).toHaveFocus();
     expect(confirmation).toHaveAccessibleDescription(
-      "Formulário de seção (CRETA 1.0 TGDI FLEX COMFORT - Enviar) será preenchido e enviado de verdade em example.com, uma vez para cada unidade, um envio de cada vez: Unidade Leste, Unidade Norte, Unidade Sul. A fila para se a página mudar ou um envio falhar, e pode ser cancelada entre um envio e outro. Site de cliente (produção): o envio cria um lead real, que a concessionária recebe como contato de verdade.",
+      "Formulário de seção (CRETA 1.0 TGDI FLEX COMFORT - Enviar) será preenchido e enviado de verdade em example.com, uma vez para cada unidade, um envio de cada vez: Unidade Leste, Unidade Norte, Unidade Sul. A fila para se a página mudar ou um envio falhar, e pode ser cancelada entre um envio e outro. Se o site levar a outra página dele depois de um envio, a fila volta ao endereço do formulário antes do próximo. Site de cliente (produção): o envio cria um lead real, que a concessionária recebe como contato de verdade.",
     );
     expect(sent).toHaveLength(0);
     await user.click(
@@ -727,7 +729,7 @@ describe("Envio para várias unidades", () => {
     ).toBeEnabled();
   });
 
-  it("para quando a página muda depois de um envio, mostra as pendentes e as marca ao atualizar a lista", async () => {
+  it("para quando a página vai para outro site depois de um envio, mostra as pendentes e as marca ao atualizar a lista", async () => {
     const { sent, tabsGet } = mockUnitPage();
     tabsGet
       .mockResolvedValueOnce({
@@ -738,7 +740,8 @@ describe("Envio para várias unidades", () => {
       .mockResolvedValue({
         active: true,
         id: 7,
-        url: "https://example.com/obrigado",
+        status: "complete",
+        url: "https://outro.example/obrigado",
       });
     const user = userEvent.setup();
     render(<PageForms onSubmitted={vi.fn()} />);
@@ -754,7 +757,7 @@ describe("Envio para várias unidades", () => {
     ).toBeVisible();
     expect(
       within(queue).getByText(
-        "A página mudou depois do envio anterior, e a fila parou antes de Unidade Norte para não enviar no lugar errado. Atualize a lista para enviar às unidades pendentes.",
+        "A página foi para outro site depois do envio anterior, e a fila parou antes de Unidade Norte para não enviar no lugar errado. Atualize a lista para enviar às unidades pendentes.",
       ),
     ).toBeVisible();
     expect(

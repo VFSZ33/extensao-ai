@@ -128,6 +128,7 @@ describe("Popup da extensão", () => {
                         definitionName: "Formulário de seção",
                         index: 1,
                         label: "Título da seção - Enviar",
+                        marks: {},
                         selects: [],
                       },
                     ],
@@ -230,6 +231,7 @@ const SITE_FORMS = [
     definitionName: "Formulário de seção",
     index: 1,
     label: "Título da seção - Enviar",
+    marks: {},
     selects: [],
   },
 ];

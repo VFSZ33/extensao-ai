@@ -270,20 +270,26 @@ async function openActionPopup(
   );
 }
 
-async function openFixturePage(): Promise<FixtureSession> {
+async function openFixturePage({
+  backForwardCache = false,
+}: { backForwardCache?: boolean } = {}): Promise<FixtureSession> {
   const extensionPath = resolve(".output/chrome-mv3");
   const attachmentFixture = await readFile(
     resolve("tests/fixtures/attachment-form.html"),
   );
   const fixture = await readFile(resolve("tests/fixtures/lead-forms.html"));
+  const thanksFixture = await readFile(resolve("tests/fixtures/obrigado.html"));
   const server = createServer((request, response) => {
+    const { pathname } = new URL(request.url ?? "/", "http://127.0.0.1");
     response.setHeader("content-type", "text/html; charset=utf-8");
     response.end(
-      request.url === "/"
+      pathname === "/"
         ? fixture
-        : request.url === "/anexo"
+        : pathname === "/anexo"
           ? attachmentFixture
-          : "<!doctype html><title>Sem formulários</title><h1>Sem formulários</h1>",
+          : pathname === "/obrigado"
+            ? thanksFixture
+            : "<!doctype html><title>Sem formulários</title><h1>Sem formulários</h1>",
     );
   });
   await new Promise<void>((done) => {
@@ -303,6 +309,9 @@ async function openFixturePage(): Promise<FixtureSession> {
     ],
     channel: "chromium",
     headless: true,
+    ...(backForwardCache && {
+      ignoreDefaultArgs: ["--disable-back-forward-cache"],
+    }),
   });
   const close = async () => {
     await context.close();
@@ -699,9 +708,10 @@ test("preenche caixa de texto e seletor, com a opção escolhida no popup", asyn
   }
 });
 
-test("envia para várias unidades em fila, um lead por unidade, e para quando a página muda", async () => {
+test("envia para várias unidades em fila, um lead por unidade, e volta ao formulário quando o site redireciona para a página de obrigado", async () => {
+  test.slow();
   const { close, context, extensionId, origin, page, userDataDir } =
-    await openFixturePage();
+    await openFixturePage({ backForwardCache: true });
 
   try {
     const submissions = page.getByRole("list", { name: "Envios recebidos" });
@@ -791,9 +801,10 @@ test("envia para várias unidades em fila, um lead por unidade, e para quando a 
     await expect(history.getByRole("listitem")).toContainText(ids[1] ?? "");
     await expect(history).toContainText("Mostrando 1 de 3 envios.");
 
-    await page.evaluate(() => {
-      location.hash = "navega-depois-do-envio";
-    });
+    const redirectUrl =
+      origin + "/?filter%5Bunit%5D=fixture#redireciona-para-obrigado";
+    const tabCount = context.pages().length;
+    await page.goto(redirectUrl);
     await forms.getByRole("button", { name: "Atualizar lista" }).click();
     await multiUnit.click();
     await form.getByRole("checkbox", { name: "Todas" }).click();
@@ -802,23 +813,30 @@ test("envia para várias unidades em fila, um lead por unidade, e para quando a 
       .getByRole("button", { name: "Confirmar 3 envios" })
       .click();
     await expect(queue).toContainText(
-      "Fila interrompida: 1 de 3 envios disparados.",
-      { timeout: 15000 },
+      "Fila concluída: 3 de 3 envios disparados.",
+      { timeout: 60000 },
     );
-    await expect(queue).toContainText(
-      "Unidades pendentes, sem envio: Unidade Boa Viagem, Unidade Caruaru.",
+    await expect(page).toHaveURL(origin + "/obrigado?filter%5Bunit%5D=fixture");
+    await expect(page.getByText("Obrigado!")).toBeVisible();
+    await expect(submissions.getByRole("listitem")).toHaveCount(6);
+    const redirected = await Promise.all(
+      (await submissions.getByRole("listitem").all())
+        .slice(3)
+        .map(async (item): Promise<unknown> =>
+          JSON.parse(await item.innerText()),
+        ),
     );
-    await expect(submissions.getByRole("listitem")).toHaveCount(4);
-    expect(page.url()).toBe(origin + "/#obrigado");
-
-    await forms.getByRole("button", { name: "Atualizar lista" }).click();
-    await expect(
-      form.getByRole("button", { name: "Enviar para 2 unidades" }),
-    ).toBeEnabled();
-    await expect(
-      form.getByRole("checkbox", { name: "Unidade Afogados" }),
-    ).not.toBeChecked();
-    await expect(queue).not.toBeAttached();
+    expect(redirected).toEqual(
+      ["unit-afogados", "unit-boa-viagem", "unit-caruaru"].map((unit) =>
+        expect.objectContaining({
+          data: expect.objectContaining({ unit }),
+          form: "CRETA 1.0 TGDI FLEX COMFORT - Enviar",
+          valid: true,
+        }),
+      ),
+    );
+    expect(context.pages()).toHaveLength(tabCount);
+    await expect(history).toContainText("Mostrando 2 de 6 envios.");
     await popup.close();
   } finally {
     await close();
@@ -1038,6 +1056,354 @@ test("envia o formulário com anexo do site de testes pelo painel lateral", asyn
         .getByRole("listitem")
         .first(),
     ).toContainText("lead-de-teste-" + submissionId + ".pdf");
+    await sidePanel.close();
+  } finally {
+    await close();
+  }
+});
+
+test("volta ao formulário pela tela de sucesso e segue a fila para 3 unidades", async () => {
+  const { close, context, extensionId, origin, page, userDataDir } =
+    await openFixturePage();
+  const pageUrl = origin + "/#tela-de-sucesso";
+
+  try {
+    await page.goto(pageUrl);
+    const submissions = page.getByRole("list", { name: "Envios recebidos" });
+    const popup = await openActionPopup(
+      context,
+      extensionId,
+      pageUrl,
+      userDataDir,
+    );
+    const forms = popup.page.getByRole("region", {
+      name: "Formulários da página",
+    });
+    const form = forms
+      .getByRole("listitem")
+      .filter({ hasText: "CRETA 1.0 TGDI FLEX COMFORT - Enviar" });
+    await form
+      .getByRole("switch", { name: "Enviar para várias unidades" })
+      .click();
+    await form.getByRole("checkbox", { name: "Todas" }).click();
+    await form.getByRole("button", { name: "Enviar para 3 unidades" }).click();
+    await popup.page
+      .getByRole("group", { name: "Enviar 3 formulários reais?" })
+      .getByRole("button", { name: "Confirmar 3 envios" })
+      .click();
+    await expect(
+      forms.getByRole("group", { name: "Fila de envios" }),
+    ).toContainText("Fila concluída: 3 de 3 envios disparados.", {
+      timeout: 20000,
+    });
+    await expect(submissions.getByRole("listitem")).toHaveCount(3);
+    const received = await Promise.all(
+      (await submissions.getByRole("listitem").all()).map(
+        async (item): Promise<unknown> => JSON.parse(await item.innerText()),
+      ),
+    );
+    expect(received).toEqual(
+      ["unit-afogados", "unit-boa-viagem", "unit-caruaru"].map((unit) =>
+        expect.objectContaining({
+          data: expect.objectContaining({
+            name: expect.stringMatching(SUBMISSION_ID_PATTERN),
+            unit,
+          }),
+          form: "CRETA 1.0 TGDI FLEX COMFORT - Enviar",
+          valid: true,
+        }),
+      ),
+    );
+    expect(
+      new Set(
+        received.map(
+          (submission) =>
+            JSON.stringify(submission).match(SUBMISSION_ID_PATTERN)?.[0],
+        ),
+      ).size,
+    ).toBe(3);
+    await expect(page.getByText("Obrigado!")).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Voltar para o formulário" }),
+    ).toHaveCount(1);
+    expect(page.url()).toBe(pageUrl);
+    await expect(
+      popup.page
+        .getByRole("region", { name: "Histórico de envios" })
+        .getByRole("listitem"),
+    ).toHaveCount(3);
+    await popup.close();
+  } finally {
+    await close();
+  }
+});
+
+test("segue a fila do formulário com anexo pela tela de sucesso no painel lateral", async () => {
+  const { close, context, extensionId, page, userDataDir } =
+    await openFixturePage();
+  const testSiteUrl = "https://loja.preview-v2.autodromo.com.br/";
+  const pageUrl = testSiteUrl + "#tela-de-sucesso";
+
+  try {
+    const fixture = await readFile(
+      resolve("tests/fixtures/attachment-form.html"),
+    );
+    await context.route(testSiteUrl + "**", (route) =>
+      route.fulfill({
+        body: fixture,
+        contentType: "text/html; charset=utf-8",
+      }),
+    );
+    await page.goto(pageUrl);
+    const submissions = page.getByRole("list", { name: "Envios recebidos" });
+    const sidePanel = await openSidePanel(
+      await openActionPopup(context, extensionId, pageUrl, userDataDir),
+      extensionId,
+      userDataDir,
+    );
+    const forms = sidePanel.page.getByRole("region", {
+      name: "Formulários da página",
+    });
+    const form = forms
+      .getByRole("listitem")
+      .filter({ hasText: "Anexo com unidade - Enviar" });
+    await form
+      .getByRole("switch", { name: "Enviar para várias unidades" })
+      .click();
+    await form.getByRole("checkbox", { name: "Todas" }).click();
+    await form.getByRole("button", { name: "Enviar para 2 unidades" }).click();
+    await sidePanel.page
+      .getByRole("group", { name: "Enviar 2 formulários reais?" })
+      .getByRole("button", { name: "Confirmar 2 envios" })
+      .click();
+    await expect(
+      forms.getByRole("group", { name: "Fila de envios" }),
+    ).toContainText("Fila concluída: 2 de 2 envios disparados.", {
+      timeout: 20000,
+    });
+    await expect(submissions.getByRole("listitem")).toHaveCount(2);
+    const received = await Promise.all(
+      (await submissions.getByRole("listitem").all()).map(
+        async (item): Promise<unknown> => JSON.parse(await item.innerText()),
+      ),
+    );
+    expect(received).toEqual(
+      ["unit-afogados", "unit-boa-viagem"].map((unit) =>
+        expect.objectContaining({
+          data: expect.objectContaining({
+            attachment: expect.stringMatching(
+              /^documents\/lead-de-teste-LT-\d{8}-\d{6}-00[12]\.pdf$/,
+            ),
+            unit,
+          }),
+          form: "Anexo com unidade - Enviar",
+          valid: true,
+        }),
+      ),
+    );
+    await expect(
+      page
+        .getByRole("list", { name: "Anexos recebidos" })
+        .getByRole("listitem"),
+    ).toHaveCount(2);
+    await expect(page.getByText("Obrigado!")).toBeVisible();
+    await sidePanel.close();
+  } finally {
+    await close();
+  }
+});
+
+test("segue a fila pelo painel lateral quando o site redireciona para a página de obrigado e volta ao endereço do formulário", async () => {
+  test.slow();
+  const { close, context, extensionId, page, userDataDir } =
+    await openFixturePage({ backForwardCache: true });
+  const testSiteUrl = "https://loja.preview-v2.autodromo.com.br/";
+  const pageUrl =
+    testSiteUrl + "?filter%5Bunit%5D=fixture#redireciona-para-obrigado";
+
+  try {
+    const fixture = await readFile(resolve("tests/fixtures/lead-forms.html"));
+    const thanks = await readFile(resolve("tests/fixtures/obrigado.html"));
+    await context.route(testSiteUrl + "**", (route) =>
+      route.fulfill({
+        body:
+          new URL(route.request().url()).pathname === "/obrigado"
+            ? thanks
+            : fixture,
+        contentType: "text/html; charset=utf-8",
+      }),
+    );
+    await page.goto(pageUrl);
+    const tabCount = context.pages().length;
+    const sidePanel = await openSidePanel(
+      await openActionPopup(context, extensionId, pageUrl, userDataDir),
+      extensionId,
+      userDataDir,
+    );
+    const forms = sidePanel.page.getByRole("region", {
+      name: "Formulários da página",
+    });
+    const form = forms
+      .getByRole("listitem")
+      .filter({ hasText: "CRETA 1.0 TGDI FLEX COMFORT - Enviar" });
+    await form
+      .getByRole("switch", { name: "Enviar para várias unidades" })
+      .click();
+    await form.getByRole("checkbox", { name: "Todas" }).click();
+    await form.getByRole("button", { name: "Enviar para 3 unidades" }).click();
+    await sidePanel.page
+      .getByRole("group", { name: "Enviar 3 formulários reais?" })
+      .getByRole("button", { name: "Confirmar 3 envios" })
+      .click();
+    const queue = forms.getByRole("group", { name: "Fila de envios" });
+    await expect(queue).toContainText(
+      "Fila concluída: 3 de 3 envios disparados.",
+      { timeout: 60000 },
+    );
+    await expect(page).toHaveURL(
+      testSiteUrl + "obrigado?filter%5Bunit%5D=fixture",
+    );
+    const submissions = page.getByRole("list", { name: "Envios recebidos" });
+    await expect(submissions.getByRole("listitem")).toHaveCount(3);
+    const received = await Promise.all(
+      (await submissions.getByRole("listitem").all()).map(
+        async (item): Promise<unknown> => JSON.parse(await item.innerText()),
+      ),
+    );
+    expect(received).toEqual(
+      ["unit-afogados", "unit-boa-viagem", "unit-caruaru"].map((unit) =>
+        expect.objectContaining({
+          data: expect.objectContaining({
+            name: expect.stringMatching(SUBMISSION_ID_PATTERN),
+            unit,
+          }),
+          form: "CRETA 1.0 TGDI FLEX COMFORT - Enviar",
+          valid: true,
+        }),
+      ),
+    );
+    expect(context.pages()).toHaveLength(tabCount);
+    await expect(
+      sidePanel.page
+        .getByRole("region", { name: "Histórico de envios" })
+        .getByRole("listitem"),
+    ).toHaveCount(3);
+    await sidePanel.close();
+  } finally {
+    await close();
+  }
+});
+
+test("para a fila pelo painel lateral quando o site leva a outro site e retoma as pendentes depois de liberar o acesso", async () => {
+  test.slow();
+  const { close, context, extensionId, page, userDataDir } =
+    await openFixturePage({ backForwardCache: true });
+  const otherSiteUrl = "https://outro-site.example/obrigado";
+  const testSiteUrl = "https://loja.preview-v2.autodromo.com.br/";
+  const pageUrl =
+    testSiteUrl + "?filter%5Bunit%5D=fixture#redireciona-para-obrigado";
+
+  try {
+    const fixture = await readFile(resolve("tests/fixtures/lead-forms.html"));
+    const thanks = await readFile(resolve("tests/fixtures/obrigado.html"));
+    await context.route(otherSiteUrl, (route) =>
+      route.fulfill({
+        body: thanks,
+        contentType: "text/html; charset=utf-8",
+      }),
+    );
+    await context.route(testSiteUrl + "**", (route) =>
+      new URL(route.request().url()).pathname === "/obrigado"
+        ? route.fulfill({ headers: { location: otherSiteUrl }, status: 302 })
+        : route.fulfill({
+            body: fixture,
+            contentType: "text/html; charset=utf-8",
+          }),
+    );
+    await page.goto(pageUrl);
+    const sidePanel = await openSidePanel(
+      await openActionPopup(context, extensionId, pageUrl, userDataDir),
+      extensionId,
+      userDataDir,
+    );
+    const forms = sidePanel.page.getByRole("region", {
+      name: "Formulários da página",
+    });
+    const form = forms
+      .getByRole("listitem")
+      .filter({ hasText: "CRETA 1.0 TGDI FLEX COMFORT - Enviar" });
+    await form
+      .getByRole("switch", { name: "Enviar para várias unidades" })
+      .click();
+    await form.getByRole("checkbox", { name: "Todas" }).click();
+    await form.getByRole("button", { name: "Enviar para 3 unidades" }).click();
+    await sidePanel.page
+      .getByRole("group", { name: "Enviar 3 formulários reais?" })
+      .getByRole("button", { name: "Confirmar 3 envios" })
+      .click();
+    await expect(page).toHaveURL(otherSiteUrl, { timeout: 15000 });
+    await expect(
+      sidePanel.page.getByRole("region", { name: "Acesso a esta aba" }),
+    ).toContainText("A extensão ainda não tem acesso a outro-site.example.");
+    await expect(forms).toBeHidden();
+    const stoppedQueue = sidePanel.page
+      .getByRole("region", {
+        includeHidden: true,
+        name: "Formulários da página",
+      })
+      .getByRole("group", { includeHidden: true, name: "Fila de envios" });
+    await expect(stoppedQueue).toContainText(
+      "Fila interrompida: 1 de 3 envios disparados.",
+    );
+    await expect(stoppedQueue).toContainText(
+      "A página foi para outro site depois do envio anterior",
+    );
+
+    await page.goBack({ waitUntil: "commit" });
+    expect(page.url()).toBe(pageUrl);
+    await expect(
+      sidePanel.page.getByRole("region", { name: "Acesso a esta aba" }),
+    ).toContainText(
+      "A extensão ainda não tem acesso a loja.preview-v2.autodromo.com.br.",
+    );
+    const regrant = await openActionPopup(
+      context,
+      extensionId,
+      pageUrl,
+      userDataDir,
+    );
+    await regrant.close();
+    const otherTab = await context.newPage();
+    await otherTab.bringToFront();
+    await page.bringToFront();
+    await otherTab.close();
+    await expect(form).toBeVisible();
+    const queue = forms.getByRole("group", { name: "Fila de envios" });
+    await expect(queue).toContainText(
+      "Fila interrompida: 1 de 3 envios disparados.",
+    );
+    await expect(queue).toContainText(
+      "A página foi para outro site depois do envio anterior, e a fila parou antes de Unidade Boa Viagem para não enviar no lugar errado.",
+    );
+    await expect(queue).toContainText(
+      "Unidades pendentes, sem envio: Unidade Boa Viagem, Unidade Caruaru.",
+    );
+    await expect(
+      page
+        .getByRole("list", { name: "Envios recebidos" })
+        .getByRole("listitem"),
+    ).toHaveCount(1);
+    await forms.getByRole("button", { name: "Atualizar lista" }).click();
+    await expect(
+      form.getByRole("button", { name: "Enviar para 2 unidades" }),
+    ).toBeEnabled();
+    await expect(
+      form.getByRole("checkbox", { name: "Unidade Afogados" }),
+    ).not.toBeChecked();
+    await expect(
+      form.getByRole("checkbox", { name: "Unidade Boa Viagem" }),
+    ).toBeChecked();
+    await expect(queue).not.toBeAttached();
     await sidePanel.close();
   } finally {
     await close();

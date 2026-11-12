@@ -331,6 +331,10 @@
       </div>
     </template>
     <script>
+      const FORM_RETURN_DELAY_MS = 500;
+      const REDIRECT_DELAY_MS = 2500;
+      const SUBMISSIONS_KEY = "submissions";
+      const SUCCESS_DELAY_MS = 2500;
       const controlled = new Map();
       const masks = {
         cpf: (value) =>
@@ -358,6 +362,15 @@
         HTMLInputElement.prototype,
         "value",
       );
+      const pristineForms = new Map(
+        Array.from(document.forms, (form) => [form, form.cloneNode(true)]),
+      );
+
+      function appendSubmission(submission) {
+        const item = document.createElement("li");
+        item.textContent = submission;
+        document.getElementById("submissions").append(item);
+      }
 
       function hasValidCpf(value) {
         const digits = [...value.replace(/\D/g, "")].map(Number);
@@ -403,6 +416,20 @@
         });
       }
 
+      function readSubmissions() {
+        return JSON.parse(sessionStorage.getItem(SUBMISSIONS_KEY) ?? "[]");
+      }
+
+      function redirectToThanks(form) {
+        const submit = form.querySelector('button[type="submit"]');
+        submit.disabled = true;
+
+        setTimeout(() => {
+          submit.disabled = false;
+          location.href = "/obrigado" + location.search;
+        }, REDIRECT_DELAY_MS);
+      }
+
       document
         .getElementById("contact-modal-opener")
         .addEventListener("click", () => {
@@ -424,17 +451,47 @@
             });
         });
 
-      document.querySelectorAll("[data-mask]").forEach(maskInput);
+      function setupFields(root) {
+        root.querySelectorAll("[data-mask]").forEach(maskInput);
 
-      for (const field of document.querySelectorAll("[data-controlled]")) {
-        controlled.set(field, field.value);
-        field.addEventListener(
-          field instanceof HTMLSelectElement ? "change" : "input",
-          () => {
-            controlled.set(field, field.value);
-          },
-        );
+        for (const field of root.querySelectorAll("[data-controlled]")) {
+          controlled.set(field, field.value);
+          field.addEventListener(
+            field instanceof HTMLSelectElement ? "change" : "input",
+            () => {
+              controlled.set(field, field.value);
+            },
+          );
+        }
       }
+
+      function showSuccess(form) {
+        const pristine = pristineForms.get(form);
+        form.querySelector('button[type="submit"]').disabled = true;
+
+        setTimeout(() => {
+          const back = document.createElement("button");
+          const message = document.createElement("p");
+          const panel = document.createElement("div");
+          back.className = "styleguide";
+          back.textContent = "Voltar para o formulário";
+          back.type = "button";
+          message.textContent = "Obrigado!";
+          back.addEventListener("click", () => {
+            setTimeout(() => {
+              const remounted = pristine.cloneNode(true);
+              pristineForms.set(remounted, pristine);
+              panel.replaceWith(remounted);
+              setupFields(remounted);
+            }, FORM_RETURN_DELAY_MS);
+          });
+          panel.append(message, back);
+          form.replaceWith(panel);
+        }, SUCCESS_DELAY_MS);
+      }
+
+      readSubmissions().forEach(appendSubmission);
+      setupFields(document);
 
       const validators = {
         "contact-modal": (data) =>
@@ -482,16 +539,23 @@
             : formData.get(key);
         }
 
-        const item = document.createElement("li");
-        item.textContent = JSON.stringify({
+        const submission = JSON.stringify({
           data,
           form: form.dataset.gtagLabel ?? "",
           valid: validators[form.dataset.fixture](data, form),
         });
-        document.getElementById("submissions").append(item);
+        sessionStorage.setItem(
+          SUBMISSIONS_KEY,
+          JSON.stringify([...readSubmissions(), submission]),
+        );
+        appendSubmission(submission);
 
-        if (location.hash === "#navega-depois-do-envio") {
-          location.hash = "obrigado";
+        if (location.hash === "#redireciona-para-obrigado") {
+          redirectToThanks(form);
+        }
+
+        if (location.hash === "#tela-de-sucesso") {
+          showSuccess(form);
         }
       });
     </script>

@@ -3,6 +3,7 @@ import type { LeadTextSource } from "@/lib/lead-data";
 export type FormDefinition = {
   fields: FormFieldDefinition[];
   id: string;
+  marks?: string[];
   matches: (form: HTMLFormElement) => boolean;
   name: string;
   submitSelector: string;

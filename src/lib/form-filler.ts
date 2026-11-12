@@ -5,7 +5,12 @@ import type {
 import type { LeadAttachment, LeadData } from "@/lib/lead-data";
 
 import {
+  rememberSubmittedForm,
+  returnToSubmittedForm,
+} from "@/lib/form-return";
+import {
   type FilledValues,
+  type FormReturn,
   type FormSelect,
   type PageResponse,
   parsePageCommand,
@@ -56,6 +61,7 @@ export function detectForms(
             definitionName: definition.name,
             index,
             label: describeForm(form),
+            marks: readMarks(form, definition),
             selects: listSelects(form, definition),
           },
         ]
@@ -138,7 +144,7 @@ export async function runPageCommand(
   value: unknown,
   document: Document,
   definitions: FormDefinition[],
-): Promise<PageResponse<RecognizedForm[] | SubmissionResult>> {
+): Promise<PageResponse<FormReturn | RecognizedForm[] | SubmissionResult>> {
   const command = parsePageCommand(value);
 
   if (!command) {
@@ -152,6 +158,16 @@ export async function runPageCommand(
   const definition = definitions.find(
     (candidate) => candidate.id === command.definitionId,
   );
+
+  if (command.type === "return-to-form") {
+    return {
+      ok: true,
+      result: definition
+        ? await returnToSubmittedForm(document, definition, command.index)
+        : "unknown-form",
+    };
+  }
+
   const form = document.forms.item(command.index);
 
   if (!form || !definition?.matches(form)) {
@@ -162,16 +178,23 @@ export async function runPageCommand(
     };
   }
 
+  const region = form.parentElement;
+
   try {
-    return {
-      ok: true,
-      result: await fillAndSubmitForm(
-        form,
-        definition,
-        command.lead,
-        command.selections,
-      ),
-    };
+    const result = await fillAndSubmitForm(
+      form,
+      definition,
+      command.lead,
+      command.selections,
+    );
+    rememberSubmittedForm({
+      definitionId: definition.id,
+      form,
+      index: command.index,
+      region,
+    });
+
+    return { ok: true, result };
   } catch (error) {
     return {
       error:
@@ -458,6 +481,24 @@ function readFilledValues(
   }
 
   return values;
+}
+
+function readMarks(
+  form: HTMLFormElement,
+  definition: FormDefinition,
+): Record<string, string> {
+  return Object.fromEntries(
+    (definition.marks ?? []).flatMap((name) => {
+      const element = Array.from(form.elements).find(
+        (candidate) =>
+          candidate instanceof HTMLInputElement &&
+          candidate.type === "hidden" &&
+          candidate.name === name,
+      );
+
+      return element instanceof HTMLInputElement ? [[name, element.value]] : [];
+    }),
+  );
 }
 
 function resolveFields(

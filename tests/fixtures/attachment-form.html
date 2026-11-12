@@ -157,11 +157,16 @@
       <ol aria-label="Envios recebidos" id="submissions"></ol>
     </main>
     <script>
+      const FORM_RETURN_DELAY_MS = 500;
       const MAX_UPLOAD_BYTES = 5242880;
+      const SUCCESS_DELAY_MS = 2500;
       const UPLOAD_DELAY_MS = 750;
       const nativeValue = Object.getOwnPropertyDescriptor(
         HTMLInputElement.prototype,
         "value",
+      );
+      const pristineForms = new Map(
+        Array.from(document.forms, (form) => [form, form.cloneNode(true)]),
       );
 
       function maskPhone(input) {
@@ -173,6 +178,36 @@
               ? digits.replace(/^(\d{2})(\d{5})(\d{0,4})/, "($1) $2-$3")
               : digits.replace(/^(\d{2})(\d{4})(\d{0,4})/, "($1) $2-$3");
         });
+      }
+
+      function setupFields(root) {
+        root.querySelectorAll("[data-mask]").forEach(maskPhone);
+        root.querySelectorAll("[data-upload-field]").forEach(watchUpload);
+      }
+
+      function showSuccess(form) {
+        const pristine = pristineForms.get(form);
+        form.querySelector('button[type="submit"]').disabled = true;
+
+        setTimeout(() => {
+          const back = document.createElement("button");
+          const message = document.createElement("p");
+          const panel = document.createElement("div");
+          back.className = "styleguide";
+          back.textContent = "Voltar para o formulário";
+          back.type = "button";
+          message.textContent = "Obrigado!";
+          back.addEventListener("click", () => {
+            setTimeout(() => {
+              const remounted = pristine.cloneNode(true);
+              pristineForms.set(remounted, pristine);
+              panel.replaceWith(remounted);
+              setupFields(remounted);
+            }, FORM_RETURN_DELAY_MS);
+          });
+          panel.append(message, back);
+          form.replaceWith(panel);
+        }, SUCCESS_DELAY_MS);
       }
 
       function watchUpload(field) {
@@ -237,8 +272,7 @@
         });
       }
 
-      document.querySelectorAll("[data-mask]").forEach(maskPhone);
-      document.querySelectorAll("[data-upload-field]").forEach(watchUpload);
+      setupFields(document);
 
       document.addEventListener("submit", (event) => {
         event.preventDefault();
@@ -264,6 +298,10 @@
             data.attachment.startsWith("documents/"),
         });
         document.getElementById("submissions").append(item);
+
+        if (location.hash === "#tela-de-sucesso") {
+          showSuccess(form);
+        }
       });
     </script>
   </body>

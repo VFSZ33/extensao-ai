@@ -96,6 +96,7 @@ describe("Definições de formulário", () => {
         definitionName: "Formulário de oferta",
         index: 0,
         label: "oferta - GEELY EX5 PRO - Enviar",
+        marks: {},
         selects: [],
       },
       {
@@ -103,6 +104,13 @@ describe("Definições de formulário", () => {
         definitionName: "Formulário de seção",
         index: 2,
         label: "Título da seção - Enviar",
+        marks: {
+          accountId: "account-fixture",
+          channel: "Home",
+          product: "Página Inicial",
+          siteId: "site-fixture",
+          teamId: "team-fixture",
+        },
         selects: [],
       },
       {
@@ -110,6 +118,7 @@ describe("Definições de formulário", () => {
         definitionName: "Formulário de oferta",
         index: 3,
         label: "oferta - GEELY EX2 - Enviar",
+        marks: {},
         selects: [],
       },
       {
@@ -117,6 +126,15 @@ describe("Definições de formulário", () => {
         definitionName: "Formulário de seção",
         index: 4,
         label: "CRETA 1.0 TGDI FLEX COMFORT - Enviar",
+        marks: {
+          accountId: "account-fixture",
+          category: "Seminovos",
+          channel: "Seminovos",
+          content_entry_id: "entry-fixture",
+          product: "CRETA 1.0 TGDI",
+          siteId: "site-fixture",
+          teamId: "team-fixture",
+        },
         selects: [
           {
             key: "unit",
@@ -142,6 +160,7 @@ describe("Definições de formulário", () => {
       definitionName: "Formulário de modal de contato",
       index: 5,
       label: "contact-form-modal - Fale por WhatsApp - iniciar conversa",
+      marks: {},
       selects: [],
     });
 
