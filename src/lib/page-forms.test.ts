@@ -16,6 +16,7 @@ import {
   reopenFormPage,
   returnToForm,
   submitTestLead,
+  waitForPageChange,
 } from "@/lib/page-forms";
 import { readSubmissionHistory } from "@/lib/submission-history";
 
@@ -604,6 +605,81 @@ describe("Volta ao endereço do formulário", () => {
     await expect(reopenFormPage(formPage, unitForm)).resolves.toEqual({
       status,
     });
+  });
+});
+
+describe("Espera pela saída da página depois do envio", () => {
+  const formUrl = "https://example.com/oferta?filter%5Bunit%5D=north";
+  const formPage = { pageUrl: formUrl, tabId: 7 };
+  const loaded = { active: true, id: 7, status: "complete", url: formUrl };
+
+  beforeEach(() => {
+    fakeBrowser.reset();
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+
+    return () => {
+      vi.useRealTimers();
+    };
+  });
+
+  it.each([
+    [
+      "o site leva a aba a outro endereço",
+      { ...loaded, url: "https://example.com/obrigado" },
+    ],
+    [
+      "o site começa uma navegação",
+      { ...loaded, pendingUrl: "https://example.com/obrigado" },
+    ],
+  ])(
+    "percebe, sem agir na página, quando %s depois que o formulário parecia pronto",
+    async (_reason, tab) => {
+      const get = vi
+        .spyOn(tabs, "get")
+        .mockResolvedValueOnce(loaded)
+        .mockResolvedValueOnce(loaded)
+        .mockResolvedValue(tab);
+      const executeScript = vi.spyOn(browser.scripting, "executeScript");
+      const change = waitForPageChange(formPage, PAGE_LOAD_TIMEOUT_MS);
+      await vi.advanceTimersByTimeAsync(PAGE_LOAD_POLL_MS * 2);
+      await expect(change).resolves.toBe("changed");
+      expect(get).toHaveBeenCalledTimes(3);
+      expect(executeScript).not.toHaveBeenCalled();
+    },
+  );
+
+  it("devolve que a página ficou no endereço quando o prazo acaba", async () => {
+    vi.spyOn(tabs, "get").mockResolvedValue(loaded);
+    const change = waitForPageChange(formPage, PAGE_LOAD_POLL_MS * 4);
+    await vi.advanceTimersByTimeAsync(PAGE_LOAD_POLL_MS * 3);
+    await expect(
+      Promise.race([change, Promise.resolve("esperando")]),
+    ).resolves.toBe("esperando");
+    await vi.advanceTimersByTimeAsync(PAGE_LOAD_POLL_MS);
+    await expect(change).resolves.toBe("unchanged");
+  });
+
+  it("para quando a aba é fechada ou deixa de ser a ativa e quando a espera é cancelada", async () => {
+    vi.spyOn(tabs, "get")
+      .mockRejectedValueOnce(new Error("No tab with id: 7."))
+      .mockResolvedValueOnce({ ...loaded, active: false })
+      .mockResolvedValue(loaded);
+    await expect(
+      waitForPageChange(formPage, PAGE_LOAD_TIMEOUT_MS),
+    ).resolves.toBe("inactive");
+    await expect(
+      waitForPageChange(formPage, PAGE_LOAD_TIMEOUT_MS),
+    ).resolves.toBe("inactive");
+    const controller = new AbortController();
+    const change = waitForPageChange(
+      formPage,
+      PAGE_LOAD_TIMEOUT_MS,
+      controller.signal,
+    );
+    await vi.advanceTimersByTimeAsync(PAGE_LOAD_POLL_MS);
+    controller.abort();
+    await vi.advanceTimersByTimeAsync(PAGE_LOAD_POLL_MS);
+    await expect(change).resolves.toBe("cancelled");
   });
 });
 

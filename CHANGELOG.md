@@ -4,6 +4,11 @@ As mudanças de cada entrega do Scanner de Leads, da mais recente para a mais an
 
 ## Não lançado
 
+### Fila pelo redirecionamento atrasado para a página de obrigado
+
+- Correção: quando o site redirecionava para a página de obrigado segundos depois de o formulário parecer pronto (o envio do lead demora pelo reCAPTCHA ou pelo anexo), a fila enviava a próxima unidade no documento que ainda ia sair da aba, e esse envio se perdia, ou aceitava esse documento como o formulário reaberto e parava com "A página mudou de endereço depois do envio anterior".
+- Com o formulário ainda no documento do envio anterior, a fila não envia nele: depois do primeiro envio, observa a aba por até 5 s e, sem mudança de endereço, segue sem essa espera nos envios seguintes; depois de um redirecionamento, espera até 15 s o próximo e para com o motivo se ele não vier. Se a página continua mudando, volta ao endereço do formulário até 3 vezes por envio. Cancelar fila interrompe essas esperas.
+
 ### Fila pelo redirecionamento para a página de obrigado
 
 - Na fila de várias unidades, quando o site leva a aba a outra página do mesmo site depois do envio (a página de obrigado com redirecionamento configurado), a extensão leva a mesma aba de volta ao endereço exato do formulário, com a query, espera até 15 s o carregamento, encontra o mesmo formulário e segue para a próxima unidade; recarga e mudança só da âncora seguem o mesmo caminho. O envio individual não muda.

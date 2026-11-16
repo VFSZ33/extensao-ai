@@ -332,6 +332,7 @@
     </template>
     <script>
       const FORM_RETURN_DELAY_MS = 500;
+      const LATE_REDIRECT_DELAY_MS = 3000;
       const REDIRECT_DELAY_MS = 2500;
       const SUBMISSIONS_KEY = "submissions";
       const SUCCESS_DELAY_MS = 2500;
@@ -420,6 +421,20 @@
         return JSON.parse(sessionStorage.getItem(SUBMISSIONS_KEY) ?? "[]");
       }
 
+      function redirectLateToThanks(form, submission) {
+        const submit = form.querySelector('button[type="submit"]');
+        submit.disabled = true;
+
+        setTimeout(() => {
+          submit.disabled = false;
+
+          setTimeout(() => {
+            saveSubmission(submission);
+            location.href = "/obrigado" + location.search;
+          }, LATE_REDIRECT_DELAY_MS);
+        }, REDIRECT_DELAY_MS);
+      }
+
       function redirectToThanks(form) {
         const submit = form.querySelector('button[type="submit"]');
         submit.disabled = true;
@@ -428,6 +443,14 @@
           submit.disabled = false;
           location.href = "/obrigado" + location.search;
         }, REDIRECT_DELAY_MS);
+      }
+
+      function saveSubmission(submission) {
+        sessionStorage.setItem(
+          SUBMISSIONS_KEY,
+          JSON.stringify([...readSubmissions(), submission]),
+        );
+        appendSubmission(submission);
       }
 
       document
@@ -544,11 +567,13 @@
           form: form.dataset.gtagLabel ?? "",
           valid: validators[form.dataset.fixture](data, form),
         });
-        sessionStorage.setItem(
-          SUBMISSIONS_KEY,
-          JSON.stringify([...readSubmissions(), submission]),
-        );
-        appendSubmission(submission);
+
+        if (location.hash === "#redireciona-com-atraso") {
+          redirectLateToThanks(form, submission);
+          return;
+        }
+
+        saveSubmission(submission);
 
         if (location.hash === "#redireciona-para-obrigado") {
           redirectToThanks(form);

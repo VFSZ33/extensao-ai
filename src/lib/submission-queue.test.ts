@@ -4,10 +4,17 @@ import { fakeBrowser } from "wxt/testing/fake-browser";
 
 import type { RecognizedForm } from "@/lib/page-command";
 
-import { PAGE_LOAD_TIMEOUT_MS, type PageForms } from "@/lib/page-forms";
+import {
+  PAGE_LOAD_POLL_MS,
+  PAGE_LOAD_TIMEOUT_MS,
+  type PageForms,
+} from "@/lib/page-forms";
 import { readSubmissionHistory } from "@/lib/submission-history";
 import {
   listPendingUnits,
+  QUEUE_REDIRECT_TIMEOUT_MS,
+  QUEUE_REDIRECT_WATCH_MS,
+  QUEUE_SEND_INTERVAL_MS,
   runSubmissionQueue,
   type SubmissionQueue,
   type SubmissionQueueOptions,
@@ -184,9 +191,11 @@ function mockSite({
   onFreeze,
   onUpdate = () => undefined,
   pending = false,
+  redirectAfter = () => 0,
   redirectOn = "submit",
   redirectTo = thanksUrl,
   sameDocument = false,
+  unreachable = false,
 }: {
   access?: boolean;
   back?: boolean;
@@ -194,9 +203,11 @@ function mockSite({
   onFreeze?: () => void;
   onUpdate?: (tab: SiteTab) => void;
   pending?: boolean;
-  redirectOn?: "frozen" | "return" | "submit";
+  redirectAfter?: (submitted: number) => number | undefined;
+  redirectOn?: "frozen" | "late" | "return" | "submit";
   redirectTo?: string;
   sameDocument?: boolean;
+  unreachable?: boolean;
 } = {}) {
   const commands: [string, string][] = [];
   const tab: SiteTab = {
@@ -210,6 +221,7 @@ function mockSite({
   let loads = 0;
   let pendingDocument = documentId;
   let submitted = 0;
+  let unreachableOnce = false;
 
   function redirect() {
     const next = sameDocument ? documentId : "obrigado-" + submitted;
@@ -248,6 +260,15 @@ function mockSite({
 
       if (!command) {
         throw new Error("Comando ausente.");
+      }
+
+      if (
+        unreachableOnce &&
+        targeted !== undefined &&
+        command.type === "detect-forms"
+      ) {
+        unreachableOnce = false;
+        throw new Error("The frame was removed.");
       }
 
       commands.push([command.type, documentId]);
@@ -302,6 +323,14 @@ function mockSite({
       if (redirectOn === "submit") {
         redirect();
       }
+
+      const delay = redirectAfter(submitted);
+
+      if (redirectOn === "late" && delay !== undefined) {
+        setTimeout(redirect, delay);
+      }
+
+      unreachableOnce = unreachable;
 
       return [
         {
@@ -365,6 +394,7 @@ function runQueue(options: Partial<SubmissionQueueOptions> = {}) {
       onChange: (queue) => changes.push(queue),
       onSubmitted,
       page,
+      redirectWatch: 0,
       selections: { bestTime: "morning" },
       signal: new AbortController().signal,
       units,
@@ -638,6 +668,128 @@ describe("Fila de envios por unidade", () => {
       ["detect-forms", "obrigado-1"],
       ["submit-form", "obrigado-1"],
     ]);
+  });
+
+  describe("com o redirecionamento atrasado", () => {
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+
+      return () => {
+        vi.useRealTimers();
+      };
+    });
+
+    it("espera o redirecionamento que chega depois de o formulário parecer pronto e só envia a próxima unidade no formulário reaberto", async () => {
+      const { commands, update } = mockSite({
+        redirectAfter: () => 3000,
+        redirectOn: "late",
+      });
+      const { result } = runQueue({
+        page: unitPage,
+        redirectWatch: QUEUE_REDIRECT_WATCH_MS,
+      });
+      await vi.advanceTimersByTimeAsync(10000);
+      const queue = await result;
+      expect(queue.outcome).toBe("completed");
+      expect(update).toHaveBeenCalledTimes(2);
+      expect(commands.filter(([type]) => type === "submit-form")).toEqual([
+        ["submit-form", "document"],
+        ["submit-form", "form-1"],
+        ["submit-form", "form-2"],
+      ]);
+    });
+
+    it("não aceita como reaberto o documento do envio anterior que ainda vai navegar e volta ao formulário depois do redirecionamento", async () => {
+      const { commands, update } = mockSite({
+        redirectAfter: () => 3000,
+        redirectOn: "late",
+        unreachable: true,
+      });
+      const { result } = runQueue({
+        interval: QUEUE_SEND_INTERVAL_MS,
+        page: unitPage,
+        redirectWatch: QUEUE_REDIRECT_WATCH_MS,
+        units: units.slice(0, 2),
+      });
+      await vi.advanceTimersByTimeAsync(10000);
+      const queue = await result;
+      expect(queue.outcome).toBe("completed");
+      expect(update).toHaveBeenCalledExactlyOnceWith(7, {
+        url: unitPage.pageUrl,
+      });
+      expect(commands).toEqual([
+        ["detect-forms", "document"],
+        ["submit-form", "document"],
+        ["detect-forms", "document"],
+        ["detect-forms", "form-1"],
+        ["detect-forms", "form-1"],
+        ["submit-form", "form-1"],
+      ]);
+    });
+
+    it("para quando o site deixa de redirecionar depois de um envio, sem enviar no documento anterior", async () => {
+      const { commands } = mockSite({
+        redirectAfter: (submitted) => (submitted === 1 ? 0 : undefined),
+        redirectOn: "late",
+      });
+      const { result } = runQueue({
+        page: unitPage,
+        redirectWatch: QUEUE_REDIRECT_WATCH_MS,
+      });
+      await vi.advanceTimersByTimeAsync(
+        QUEUE_REDIRECT_TIMEOUT_MS - PAGE_LOAD_POLL_MS,
+      );
+      await expect(
+        Promise.race([result, Promise.resolve("esperando")]),
+      ).resolves.toBe("esperando");
+      await vi.advanceTimersByTimeAsync(PAGE_LOAD_POLL_MS * 2);
+      const queue = await result;
+      expect(queue.outcome).toBe("stopped");
+      expect(queue.message).toBe(
+        "A página não foi para a página de obrigado em 15 s depois do envio anterior, como nos envios anteriores, e a fila parou antes de Unidade Sul para não enviar no lugar errado. Atualize a lista para enviar às unidades pendentes.",
+      );
+      expect(listPendingUnits(queue).map(({ label }) => label)).toEqual([
+        "Unidade Sul",
+      ]);
+      expect(commands.filter(([type]) => type === "submit-form")).toEqual([
+        ["submit-form", "document"],
+        ["submit-form", "form-1"],
+      ]);
+    });
+
+    it("observa a página só depois do primeiro envio quando o site não redireciona", async () => {
+      const { commands } = mockQueuePage();
+      const { result } = runQueue({ redirectWatch: QUEUE_REDIRECT_WATCH_MS });
+      await vi.advanceTimersByTimeAsync(
+        QUEUE_REDIRECT_WATCH_MS - PAGE_LOAD_POLL_MS,
+      );
+      expect(
+        commands.filter(({ type }) => type === "submit-form"),
+      ).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(PAGE_LOAD_POLL_MS * 2);
+      await expect(result).resolves.toMatchObject({ outcome: "completed" });
+      expect(
+        commands.filter(({ type }) => type === "submit-form"),
+      ).toHaveLength(3);
+    });
+
+    it("cancela a fila enquanto espera o redirecionamento", async () => {
+      const controller = new AbortController();
+      const { commands } = mockQueuePage();
+      const { result } = runQueue({
+        redirectWatch: QUEUE_REDIRECT_WATCH_MS,
+        signal: controller.signal,
+      });
+      await vi.advanceTimersByTimeAsync(1000);
+      controller.abort();
+      await vi.advanceTimersByTimeAsync(PAGE_LOAD_POLL_MS);
+      const queue = await result;
+      expect(queue.outcome).toBe("cancelled");
+      expect(listPendingUnits(queue)).toHaveLength(2);
+      expect(
+        commands.filter(({ type }) => type === "submit-form"),
+      ).toHaveLength(1);
+    });
   });
 
   it.each([

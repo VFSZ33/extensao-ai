@@ -77,7 +77,7 @@ vi.mock("@/lib/submission-queue", async (importOriginal) => {
   return {
     ...actual,
     runSubmissionQueue: (options: SubmissionQueueOptions) =>
-      actual.runSubmissionQueue({ ...options, interval: 0 }),
+      actual.runSubmissionQueue({ ...options, interval: 0, redirectWatch: 0 }),
   };
 });
 

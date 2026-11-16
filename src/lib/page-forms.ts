@@ -41,6 +41,8 @@ export type FormReopen =
         | "timeout";
     };
 
+export type PageChange = "cancelled" | "changed" | "inactive" | "unchanged";
+
 export type PageForms = {
   documentId?: string;
   forms: RecognizedForm[];
@@ -282,6 +284,34 @@ export async function submitTestLead(
   }
 
   return { record, unfilledFields };
+}
+
+export async function waitForPageChange(
+  page: Pick<PageForms, "pageUrl" | "tabId">,
+  timeout: number,
+  signal?: AbortSignal,
+): Promise<PageChange> {
+  for (let waited = 0; ; waited += PAGE_LOAD_POLL_MS) {
+    if (signal?.aborted) {
+      return "cancelled";
+    }
+
+    const tab = await browser.tabs.get(page.tabId).catch(() => undefined);
+
+    if (!tab?.active) {
+      return "inactive";
+    }
+
+    if (tab.pendingUrl || tab.url !== page.pageUrl) {
+      return "changed";
+    }
+
+    if (waited >= timeout) {
+      return "unchanged";
+    }
+
+    await wait(PAGE_LOAD_POLL_MS);
+  }
 }
 
 function guardPageCommand<Result>(

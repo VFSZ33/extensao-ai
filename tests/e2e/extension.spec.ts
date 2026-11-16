@@ -843,6 +843,71 @@ test("envia para várias unidades em fila, um lead por unidade, e volta ao formu
   }
 });
 
+test("segue a fila quando o site redireciona para a página de obrigado segundos depois de o formulário parecer pronto, sem enviar no documento que ainda vai navegar", async () => {
+  test.slow();
+  const { close, context, extensionId, origin, page, userDataDir } =
+    await openFixturePage({ backForwardCache: true });
+  const pageUrl = origin + "/?filter%5Bunit%5D=fixture#redireciona-com-atraso";
+
+  try {
+    await page.goto(pageUrl);
+    const tabCount = context.pages().length;
+    const popup = await openActionPopup(
+      context,
+      extensionId,
+      pageUrl,
+      userDataDir,
+    );
+    const forms = popup.page.getByRole("region", {
+      name: "Formulários da página",
+    });
+    const form = forms
+      .getByRole("listitem")
+      .filter({ hasText: "CRETA 1.0 TGDI FLEX COMFORT - Enviar" });
+    await form
+      .getByRole("switch", { name: "Enviar para várias unidades" })
+      .click();
+    await form.getByRole("checkbox", { name: "Todas" }).click();
+    await form.getByRole("button", { name: "Enviar para 3 unidades" }).click();
+    await popup.page
+      .getByRole("group", { name: "Enviar 3 formulários reais?" })
+      .getByRole("button", { name: "Confirmar 3 envios" })
+      .click();
+    await expect(
+      forms.getByRole("group", { name: "Fila de envios" }),
+    ).toContainText("Fila concluída: 3 de 3 envios disparados.", {
+      timeout: 60000,
+    });
+    await expect(page).toHaveURL(
+      origin + "/obrigado?filter%5Bunit%5D=fixture",
+      { timeout: 15000 },
+    );
+    const submissions = page.getByRole("list", { name: "Envios recebidos" });
+    await expect(submissions.getByRole("listitem")).toHaveCount(3);
+    const received = await Promise.all(
+      (await submissions.getByRole("listitem").all()).map(
+        async (item): Promise<unknown> => JSON.parse(await item.innerText()),
+      ),
+    );
+    expect(received).toEqual(
+      ["unit-afogados", "unit-boa-viagem", "unit-caruaru"].map((unit) =>
+        expect.objectContaining({
+          data: expect.objectContaining({
+            name: expect.stringMatching(SUBMISSION_ID_PATTERN),
+            unit,
+          }),
+          form: "CRETA 1.0 TGDI FLEX COMFORT - Enviar",
+          valid: true,
+        }),
+      ),
+    );
+    expect(context.pages()).toHaveLength(tabCount);
+    await popup.close();
+  } finally {
+    await close();
+  }
+});
+
 test("anexa o PDF de teste e envia o formulário com anexo, sozinho e na fila de unidades", async () => {
   const { close, context, extensionId, origin, page, userDataDir } =
     await openFixturePage();

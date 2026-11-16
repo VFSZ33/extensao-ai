@@ -18,6 +18,7 @@ import {
   reopenFormPage,
   returnToForm,
   submitTestLead,
+  waitForPageChange,
 } from "@/lib/page-forms";
 
 export type QueueItem =
@@ -48,11 +49,15 @@ export type SubmissionQueueOptions = {
   onChange: (queue: SubmissionQueue) => void;
   onSubmitted: (record?: SubmissionRecord) => void;
   page: PageForms;
+  redirectWatch?: number;
   selections: Record<string, string>;
   signal: AbortSignal;
   units: SelectOption[];
 };
 
+export const QUEUE_REDIRECT_TIMEOUT_MS = 15000;
+export const QUEUE_REDIRECT_WATCH_MS = 5000;
+export const QUEUE_REOPEN_LIMIT = 3;
 export const QUEUE_SEND_INTERVAL_MS = 2000;
 
 const CHECK_STOPS: Record<Exclude<FormCheck["status"], "found">, string> = {
@@ -69,6 +74,10 @@ const NAVIGATION_CHECKS = new Set<FormCheck["status"]>([
   "moved",
   "navigating",
 ]);
+const REDIRECT_TIMEOUT_STOP =
+  "A página não foi para a página de obrigado em " +
+  String(QUEUE_REDIRECT_TIMEOUT_MS / 1000) +
+  " s depois do envio anterior, como nos envios anteriores";
 const REOPEN_STOPS: Record<
   Exclude<FormReopen["status"], "cancelled" | "denied" | "found">,
   string
@@ -132,6 +141,7 @@ export async function runSubmissionQueue({
   onChange,
   onSubmitted,
   page: initialPage,
+  redirectWatch = QUEUE_REDIRECT_WATCH_MS,
   selections,
   signal,
   units,
@@ -140,6 +150,7 @@ export async function runSubmissionQueue({
   let queue: SubmissionQueue = {
     items: units.map((unit) => ({ status: "pending", unit })),
   };
+  let redirects: boolean | undefined;
   const unitKey = findUnitSelect(form)?.key;
 
   function update(next: SubmissionQueue): SubmissionQueue {
@@ -197,8 +208,12 @@ export async function runSubmissionQueue({
       return stop("A página mudou desde a busca dos formulários");
     }
 
+    let formReturn: FormReturn | undefined;
+    let left = false;
+    const submittedDocumentId = page.documentId;
+
     if (index > 0 && (check.status === "found" || check.status === "missing")) {
-      const formReturn = await returnToForm(page, form, signal).catch(
+      formReturn = await returnToForm(page, form, signal).catch(
         () => undefined,
       );
 
@@ -229,31 +244,83 @@ export async function runSubmissionQueue({
       }
     }
 
-    if (index > 0 && NAVIGATION_CHECKS.has(check.status)) {
-      const reopened = await reopenFormPage(page, form, signal);
+    for (let reopens = 0; index > 0;) {
+      if (NAVIGATION_CHECKS.has(check.status)) {
+        if (check.status === "moved") {
+          left = true;
+        }
 
-      if (signal.aborted || reopened.status === "cancelled") {
+        if (reopens === QUEUE_REOPEN_LIMIT) {
+          break;
+        }
+
+        reopens += 1;
+        const reopened = await reopenFormPage(page, form, signal);
+
+        if (signal.aborted || reopened.status === "cancelled") {
+          return finish("cancelled");
+        }
+
+        if (reopened.status === "denied") {
+          return finish(
+            "stopped",
+            "A extensão perdeu o acesso à página depois que ela mudou de endereço, e a fila parou antes de " +
+              unit.label +
+              '. Libere o acesso ao site em "Permitir acesso a este site", no painel lateral (o acesso temporário do clique no ícone pode acabar quando a aba muda de endereço), e atualize a lista para enviar às unidades pendentes.',
+          );
+        }
+
+        if (reopened.status !== "found") {
+          return stop(REOPEN_STOPS[reopened.status]);
+        }
+
+        page = reopened.page;
+        await wait(interval, signal);
+
+        if (signal.aborted) {
+          return finish("cancelled");
+        }
+
+        check = await findUnchangedForm(page, form, signal);
+
+        if (signal.aborted) {
+          return finish("cancelled");
+        }
+
+        continue;
+      }
+
+      if (
+        check.status !== "found" ||
+        formReturn === "returned" ||
+        left ||
+        page.documentId !== submittedDocumentId ||
+        redirects === false
+      ) {
+        break;
+      }
+
+      const change = await waitForPageChange(
+        page,
+        redirects ? QUEUE_REDIRECT_TIMEOUT_MS : redirectWatch,
+        signal,
+      );
+
+      if (signal.aborted || change === "cancelled") {
         return finish("cancelled");
       }
 
-      if (reopened.status === "denied") {
-        return finish(
-          "stopped",
-          "A extensão perdeu o acesso à página depois que ela mudou de endereço, e a fila parou antes de " +
-            unit.label +
-            '. Libere o acesso ao site em "Permitir acesso a este site", no painel lateral (o acesso temporário do clique no ícone pode acabar quando a aba muda de endereço), e atualize a lista para enviar às unidades pendentes.',
-        );
+      if (change === "inactive") {
+        return stop(CHECK_STOPS.inactive);
       }
 
-      if (reopened.status !== "found") {
-        return stop(REOPEN_STOPS[reopened.status]);
-      }
+      if (change === "unchanged") {
+        if (redirects) {
+          return stop(REDIRECT_TIMEOUT_STOP);
+        }
 
-      page = reopened.page;
-      await wait(interval, signal);
-
-      if (signal.aborted) {
-        return finish("cancelled");
+        redirects = false;
+        break;
       }
 
       check = await findUnchangedForm(page, form, signal);
@@ -261,10 +328,18 @@ export async function runSubmissionQueue({
       if (signal.aborted) {
         return finish("cancelled");
       }
+
+      if (check.status === "found" || check.status === "missing") {
+        check = { status: "navigating" };
+      }
     }
 
     if (check.status !== "found") {
       return stop(CHECK_STOPS[check.status]);
+    }
+
+    if (index > 0 && (left || page.documentId !== submittedDocumentId)) {
+      redirects = true;
     }
 
     const current = check.form;
